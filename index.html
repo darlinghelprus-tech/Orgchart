@@ -158,6 +158,25 @@
     overflow-y:auto; color:var(--ink); font-family:'Inter',sans-serif;
   }
   #dossier.open{transform:translateX(0);}
+
+  /* Solo mode: opened directly via a personal link, shown as its own standalone page */
+  body.solo-mode #topbar, body.solo-mode #world-wrapper, body.solo-mode #toolbar{display:none;}
+  body.solo-mode{background:var(--bg-deep);}
+  #dossier.solo{
+    position:fixed; top:50%; left:50%; right:auto;
+    transform:translate(-50%,-50%);
+    width:480px; max-width:92vw; max-height:88vh;
+    border-radius:6px;
+    box-shadow:0 30px 80px rgba(0,0,0,0.55);
+  }
+  #dossier.solo.open{transform:translate(-50%,-50%);}
+  #dossier .d-back{
+    display:none;
+    font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.04em;
+    color:var(--accent-cyan-dim); text-decoration:none; cursor:pointer;
+    margin-bottom:10px;
+  }
+  #dossier.solo .d-back{display:inline-block;}
   #dossier .d-tab{height:8px;}
   #dossier .d-head{padding:24px 24px 14px; border-bottom:1px dashed var(--card-paper-edge);}
   #dossier .d-close{
@@ -230,6 +249,7 @@
   <button class="d-close" id="dossier-close">✕</button>
   <div class="d-tab" id="dossier-tab"></div>
   <div class="d-head">
+    <a class="d-back" id="dossier-back" href="#">← Показать всю схему</a>
     <div class="d-title" id="dossier-role">Должность</div>
     <div class="d-name" id="dossier-name">Имя</div>
   </div>
@@ -371,11 +391,8 @@ function render(){
       svg.appendChild(path);
     }
 
-    const card = document.createElement('a');
+    const card = document.createElement('div');
     card.className = 'node-card';
-    card.href = positionUrl(n.id);
-    card.target = '_blank';
-    card.rel = 'noopener';
     card.style.left = pos.x + 'px';
     card.style.top = pos.y + 'px';
     card.dataset.id = n.id;
@@ -387,12 +404,7 @@ function render(){
         <div class="name">${escapeHtml(n.name || '—')}</div>
         <div class="footer"><span>${n.dept ? escapeHtml(n.dept) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
-    // Update this tab's view too, in case the popup is blocked by the browser.
-    card.addEventListener('click', (e) => {
-      e.stopPropagation();
-      history.replaceState(null, '', '#p=' + n.id);
-      openDossier(n.id);
-    });
+    card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
     world.appendChild(card);
   });
 
@@ -507,10 +519,13 @@ function openDossier(id){
   dossier.classList.add('open');
 }
 document.getElementById('dossier-close').onclick = () => {
+  if(document.body.classList.contains('solo-mode')){
+    exitSoloMode();
+    return;
+  }
   dossier.classList.remove('open');
   document.querySelectorAll('.node-card').forEach(c => c.classList.remove('selected'));
   selectedId = null;
-  history.replaceState(null, '', window.location.pathname);
 };
 
 document.getElementById('d-copy-link').onclick = async () => {
@@ -583,33 +598,44 @@ document.getElementById('import-file').onchange = async (e) => {
   e.target.value = '';
 };
 
+// ---- Solo mode (opened via a personal position link) ----
+function enterSoloMode(id){
+  document.body.classList.add('solo-mode');
+  dossier.classList.add('solo');
+  openDossier(id);
+}
+function exitSoloMode(){
+  document.body.classList.remove('solo-mode');
+  dossier.classList.remove('solo');
+  dossier.classList.remove('open');
+  selectedId = null;
+  history.replaceState(null, '', window.location.pathname);
+  render();
+  applyTransform();
+}
+document.getElementById('dossier-back').addEventListener('click', (e) => {
+  e.preventDefault();
+  exitSoloMode();
+});
+
 // ---- Init ----
 (async function init(){
   await loadData();
   render();
   applyTransform();
 
-  // Deep link: if opened via a position's personal URL (#p=ID), jump straight to its dossier.
+  // Deep link: opened via a position's personal URL (#p=ID) -> show only that profile.
   const match = window.location.hash.match(/^#p=(.+)$/);
   if(match && nodes[match[1]]){
-    openDossier(match[1]);
-    // center the view roughly on that node
-    const pos = layoutPos[match[1]];
-    if(pos){
-      panX = window.innerWidth/2 - 420 - (pos.x + 98);
-      panY = window.innerHeight/2 - (pos.y + 40);
-      applyTransform();
-    }
+    enterSoloMode(match[1]);
   }
 })();
 
 window.addEventListener('hashchange', () => {
   const m = window.location.hash.match(/^#p=(.+)$/);
-  if(m && nodes[m[1]]) openDossier(m[1]);
-  else if(!window.location.hash){
-    dossier.classList.remove('open');
-    document.querySelectorAll('.node-card').forEach(c => c.classList.remove('selected'));
-    selectedId = null;
+  if(m && nodes[m[1]]) enterSoloMode(m[1]);
+  else if(!window.location.hash && document.body.classList.contains('solo-mode')){
+    exitSoloMode();
   }
 });
 </script>
