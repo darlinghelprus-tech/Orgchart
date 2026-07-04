@@ -21,9 +21,29 @@
     --lvl-3: #D96A6A;
     --panel-bg: rgba(14,26,40,0.92);
     --danger: #D96A6A;
+    --ui-text: #EAF3F5;
+    --ui-text-dim: #6B93A3;
+    --ui-border: rgba(255,255,255,0.15);
+    --ui-border-soft: rgba(255,255,255,0.08);
+    --ui-hover-bg: rgba(255,255,255,0.08);
+    --overlay-bg: rgba(6,12,20,0.6);
+    --scrollbar-thumb: rgba(255,255,255,0.15);
+  }
+  body.light-theme{
+    --bg-deep: #EDE9DE;
+    --bg-grid-dot: #D9D2BE;
+    --panel-bg: rgba(255,255,255,0.85);
+    --ui-text: #1C1B18;
+    --ui-text-dim: #6b6558;
+    --ui-border: rgba(0,0,0,0.14);
+    --ui-border-soft: rgba(0,0,0,0.08);
+    --ui-hover-bg: rgba(0,0,0,0.06);
+    --overlay-bg: rgba(30,26,18,0.35);
+    --scrollbar-thumb: rgba(0,0,0,0.18);
+    --accent-cyan-dim: #2A8E9D;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg-deep);font-family:'Inter',sans-serif;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg-deep);font-family:'Inter',sans-serif; transition:background-color .2s ease;}
 
   #world-wrapper{
     position:absolute; inset:0;
@@ -46,7 +66,7 @@
 
   .node-card{
     position:absolute;
-    width:196px;
+    width:214px;
     background:var(--card-paper);
     border:1px solid var(--card-paper-edge);
     box-shadow: 0 2px 0 rgba(0,0,0,0.25);
@@ -59,6 +79,13 @@
     height:6px; width:100%;
   }
   .node-card .body{padding:12px 14px 10px;}
+  .node-card .body-row{display:flex; gap:10px; align-items:flex-start;}
+  .node-card .body-text{min-width:0; flex:1;}
+  .card-photo{
+    width:34px; height:44px; flex-shrink:0; border-radius:3px; object-fit:cover;
+    border:1px solid var(--card-paper-edge);
+  }
+  .card-photo-empty{background:repeating-linear-gradient(135deg, var(--card-paper-edge), var(--card-paper-edge) 3px, transparent 3px, transparent 6px);}
   .node-card .title{
     font-family:'IBM Plex Mono',monospace;
     font-size:10px;
@@ -94,34 +121,45 @@
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
     display:flex; align-items:center; gap:10px;
     background:var(--panel-bg);
-    border:1px solid rgba(255,255,255,0.08);
+    border:1px solid var(--ui-border-soft);
     padding:8px 10px; border-radius:10px;
     backdrop-filter: blur(6px);
     z-index:50;
   }
   .btn{
     font-family:'Inter',sans-serif; font-size:13px; font-weight:500;
-    background:transparent; color:#EAF3F5; border:1px solid rgba(255,255,255,0.15);
+    background:transparent; color:var(--ui-text); border:1px solid var(--ui-border);
     padding:8px 12px; border-radius:7px; cursor:pointer;
     transition: background .15s, border-color .15s;
   }
-  .btn:hover{background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.3);}
+  .btn:hover{background:var(--ui-hover-bg); border-color:var(--ui-border);}
   .btn.primary{background:var(--accent-cyan); color:#0B1826; border-color:var(--accent-cyan); font-weight:600;}
   .btn.primary:hover{background:#68d2e4;}
   .btn.icon{width:34px; padding:8px 0; text-align:center;}
-  #zoom-label{font-family:'IBM Plex Mono',monospace; color:#9FD1DB; font-size:12px; min-width:42px; text-align:center;}
+  #zoom-label{font-family:'IBM Plex Mono',monospace; color:var(--ui-text-dim); font-size:12px; min-width:42px; text-align:center;}
 
   /* Top bar */
   #topbar{
     position:fixed; top:18px; left:18px; z-index:50;
-    font-family:'Space Grotesk',sans-serif; color:#EAF3F5;
+    font-family:'Space Grotesk',sans-serif; color:var(--ui-text);
   }
   #topbar .brand{font-size:15px; font-weight:600; letter-spacing:0.02em;}
-  #topbar .sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:#6B93A3; margin-top:2px;}
+  #topbar .sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ui-text-dim); margin-top:2px;}
+
+  #theme-toggle{
+    position:fixed; top:18px; right:18px; z-index:50;
+    width:40px; height:40px; border-radius:10px;
+    background:var(--panel-bg); border:1px solid var(--ui-border-soft);
+    color:var(--ui-text); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(6px);
+    transition:background .15s, border-color .15s;
+  }
+  #theme-toggle:hover{background:var(--ui-hover-bg);}
 
   /* Modal (add position) */
   .overlay{
-    position:fixed; inset:0; background:rgba(6,12,20,0.6);
+    position:fixed; inset:0; background:var(--overlay-bg);
     display:flex; align-items:center; justify-content:center;
     z-index:200; opacity:0; pointer-events:none; transition:opacity .15s;
   }
@@ -145,8 +183,25 @@
     background:#fff; color:var(--ink);
   }
   .field textarea{resize:vertical; min-height:60px;}
+  .photo-row{display:flex; gap:12px; align-items:flex-start;}
+  .photo-preview{
+    width:76px; height:100px; flex-shrink:0;
+    border:1px solid var(--card-paper-edge); border-radius:4px;
+    background:#fff; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--ink-soft); text-align:center; padding:4px;
+  }
+  .photo-preview img{width:100%; height:100%; object-fit:cover;}
   .modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:18px;}
   .btn-dark{background:var(--ink); color:#F4F0E6; border:none; padding:8px 14px; border-radius:4px; cursor:pointer; font-size:13px;}
+  .btn-icon-square{
+    background:transparent; border:1px solid var(--card-paper-edge); color:var(--ink-soft);
+    width:36px; height:36px; border-radius:4px; cursor:pointer; flex-shrink:0;
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .btn-icon-square:hover{background:var(--ink); color:#F4F0E6; border-color:var(--ink);}
+  #dossier.solo #d-goto-link{display:none;}
   .btn-ghost{background:transparent; color:var(--ink-soft); border:1px solid var(--card-paper-edge); padding:8px 14px; border-radius:4px; cursor:pointer; font-size:13px;}
 
   /* Detail / dossier panel */
@@ -189,7 +244,7 @@
   #dossier .d-actions{display:flex; gap:8px; padding:0 24px 24px;}
 
   ::-webkit-scrollbar{width:8px;}
-  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15); border-radius:4px;}
+  ::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb); border-radius:4px;}
 </style>
 </head>
 <body>
@@ -198,6 +253,11 @@
   <div class="brand">Оргструктура</div>
   <div class="sub" id="node-count">— должностей</div>
 </div>
+
+<button id="theme-toggle" title="Сменить тему">
+  <svg id="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+  <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+</button>
 
 <div id="world-wrapper">
   <div id="world">
@@ -221,6 +281,20 @@
 <div class="overlay" id="modal-overlay">
   <div class="modal">
     <h3 id="modal-title">Новая должность</h3>
+    <div class="field">
+      <label>Фотография</label>
+      <div class="photo-row">
+        <div class="photo-preview" id="f-photo-preview-wrap">
+          <img id="f-photo-preview" style="display:none;">
+          <span id="f-photo-placeholder">Нет фото</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <input type="file" id="f-photo" accept="image/*" style="display:none">
+          <button type="button" class="btn-ghost" id="f-photo-btn">Загрузить фото</button>
+          <button type="button" class="btn-ghost" id="f-photo-remove" style="display:none;">Убрать</button>
+        </div>
+      </div>
+    </div>
     <div class="field">
       <label>Название должности</label>
       <input id="f-title" type="text" placeholder="Например: Руководитель отдела продаж">
@@ -250,15 +324,39 @@
   <div class="d-tab" id="dossier-tab"></div>
   <div class="d-head">
     <a class="d-back" id="dossier-back" href="#">← Показать всю схему</a>
-    <div class="d-title" id="dossier-role">Должность</div>
-    <div class="d-name" id="dossier-name">Имя</div>
+    <div style="display:flex; gap:14px; align-items:flex-start;">
+      <div class="photo-preview" id="dossier-photo-wrap" style="width:70px; height:92px;">
+        <img id="dossier-photo" style="display:none;">
+        <span id="dossier-photo-placeholder">Нет фото</span>
+      </div>
+      <div>
+        <div class="d-title" id="dossier-role">Должность</div>
+        <div class="d-name" id="dossier-name">Имя</div>
+      </div>
+    </div>
   </div>
   <div class="d-body">
+    <div class="field">
+      <label>Фотография</label>
+      <div class="photo-row">
+        <div class="photo-preview" id="d-photo-preview-wrap">
+          <img id="d-photo-preview" style="display:none;">
+          <span id="d-photo-placeholder">Нет фото</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <input type="file" id="d-photo" accept="image/*" style="display:none">
+          <button type="button" class="btn-ghost" id="d-photo-btn">Изменить фото</button>
+          <button type="button" class="btn-ghost" id="d-photo-remove" style="display:none;">Убрать фото</button>
+        </div>
+      </div>
+    </div>
     <div class="field">
       <label>Персональная ссылка на должность</label>
       <div style="display:flex; gap:6px;">
         <input id="d-link" type="text" readonly style="font-family:'IBM Plex Mono',monospace; font-size:12px;">
-        <button class="btn-ghost" id="d-copy-link" style="white-space:nowrap;">Копировать</button>
+        <button class="btn-icon-square" id="d-copy-link" title="Копировать ссылку" aria-label="Копировать ссылку">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </button>
         <a class="btn-dark" id="d-goto-link" style="white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center;" target="_blank" rel="noopener">Перейти</a>
       </div>
     </div>
@@ -304,6 +402,31 @@ const svg = document.getElementById('connectors');
 
 function uid(){ return 'p_' + Math.random().toString(36).slice(2,9); }
 
+// Resize/compress an uploaded photo to a passport-style thumbnail (keeps stored data small).
+function fileToPhotoDataUrl(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('decode failed'));
+      img.onload = () => {
+        const targetW = 240, targetH = 320; // 3:4 passport-style ratio
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW; canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(targetW / img.width, targetH / img.height);
+        const sw = targetW / scale, sh = targetH / scale;
+        const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function positionUrl(id){
   return window.location.href.split('#')[0] + '#p=' + id;
 }
@@ -347,7 +470,7 @@ function roots(){
 }
 
 // ---- Layout (simple tree layout) ----
-const SPACING_X = 230, SPACING_Y = 150;
+const SPACING_X = 250, SPACING_Y = 150;
 let layoutPos = {}; // id -> {x,y,depth}
 
 function computeLayout(){
@@ -384,8 +507,8 @@ function render(){
     // connector to manager
     if(n.managerId && nodes[n.managerId] && layoutPos[n.managerId]){
       const p = layoutPos[n.managerId];
-      const x1 = p.x + 98, y1 = p.y + 78;
-      const x2 = pos.x + 98, y2 = pos.y;
+      const x1 = p.x + 107, y1 = p.y + 84;
+      const x2 = pos.x + 107, y2 = pos.y;
       const midY = (y1 + y2) / 2;
       const path = document.createElementNS('http://www.w3.org/2000/svg','path');
       path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
@@ -399,11 +522,19 @@ function render(){
     card.style.top = pos.y + 'px';
     card.dataset.id = n.id;
     const color = LEVEL_COLORS[pos.depth % LEVEL_COLORS.length];
+    const photoHtml = n.photo
+      ? `<img src="${n.photo}" class="card-photo">`
+      : `<div class="card-photo card-photo-empty"></div>`;
     card.innerHTML = `
       <div class="tab" style="background:${color}"></div>
       <div class="body">
-        <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
-        <div class="name">${escapeHtml(n.name || '—')}</div>
+        <div class="body-row">
+          ${photoHtml}
+          <div class="body-text">
+            <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
+            <div class="name">${escapeHtml(n.name || '—')}</div>
+          </div>
+        </div>
         <div class="footer"><span>${n.dept ? escapeHtml(n.dept) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
     card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
@@ -468,14 +599,40 @@ document.getElementById('reset-view').onclick = () => { scale = 1; panX = 60; pa
 
 // ---- Add position modal ----
 const overlay = document.getElementById('modal-overlay');
+let pendingAddPhoto = '';
+
+function resetAddPhoto(){
+  pendingAddPhoto = '';
+  document.getElementById('f-photo-preview').style.display = 'none';
+  document.getElementById('f-photo-placeholder').style.display = '';
+  document.getElementById('f-photo-remove').style.display = 'none';
+  document.getElementById('f-photo').value = '';
+}
+
 document.getElementById('add-btn').onclick = () => {
   document.getElementById('f-title').value = '';
   document.getElementById('f-name').value = '';
   document.getElementById('f-dept').value = '';
+  resetAddPhoto();
   overlay.classList.add('open');
 };
 document.getElementById('modal-cancel').onclick = () => overlay.classList.remove('open');
 overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.classList.remove('open'); });
+
+document.getElementById('f-photo-btn').onclick = () => document.getElementById('f-photo').click();
+document.getElementById('f-photo').onchange = async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    pendingAddPhoto = await fileToPhotoDataUrl(file);
+    const img = document.getElementById('f-photo-preview');
+    img.src = pendingAddPhoto;
+    img.style.display = '';
+    document.getElementById('f-photo-placeholder').style.display = 'none';
+    document.getElementById('f-photo-remove').style.display = '';
+  }catch(err){ alert('Не удалось обработать изображение.'); }
+};
+document.getElementById('f-photo-remove').onclick = () => resetAddPhoto();
 
 document.getElementById('modal-save').onclick = async () => {
   const title = document.getElementById('f-title').value.trim();
@@ -484,7 +641,7 @@ document.getElementById('modal-save').onclick = async () => {
   if(!title){ alert('Укажите название должности'); return; }
   const dept = document.getElementById('f-dept').value.trim();
   const id = uid();
-  nodes[id] = {id, title, name, managerId, dept, email:'', phone:''};
+  nodes[id] = {id, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || ''};
   await saveData();
   render();
   applyTransform();
@@ -501,8 +658,30 @@ function populateManagerSelects(){
 // ---- Dossier panel ----
 const dossier = document.getElementById('dossier');
 
+let pendingEditPhoto; // undefined = no change, null = removed, string = new photo
+
+function refreshDossierPhoto(n){
+  const hasPhoto = pendingEditPhoto !== undefined ? !!pendingEditPhoto : !!n.photo;
+  const src = pendingEditPhoto !== undefined ? pendingEditPhoto : n.photo;
+  const headImg = document.getElementById('dossier-photo');
+  const headPlaceholder = document.getElementById('dossier-photo-placeholder');
+  const editImg = document.getElementById('d-photo-preview');
+  const editPlaceholder = document.getElementById('d-photo-placeholder');
+  const removeBtn = document.getElementById('d-photo-remove');
+  if(hasPhoto && src){
+    headImg.src = src; headImg.style.display = ''; headPlaceholder.style.display = 'none';
+    editImg.src = src; editImg.style.display = ''; editPlaceholder.style.display = 'none';
+    removeBtn.style.display = '';
+  } else {
+    headImg.style.display = 'none'; headPlaceholder.style.display = '';
+    editImg.style.display = 'none'; editPlaceholder.style.display = '';
+    removeBtn.style.display = 'none';
+  }
+}
+
 function openDossier(id){
   selectedId = id;
+  pendingEditPhoto = undefined;
   const n = nodes[id];
   document.getElementById('dossier-role').textContent = n.title || 'Без названия';
   document.getElementById('dossier-name').textContent = n.name || '—';
@@ -510,6 +689,7 @@ function openDossier(id){
   document.getElementById('dossier-tab').style.background = LEVEL_COLORS[depth % LEVEL_COLORS.length];
   document.getElementById('d-link').value = positionUrl(id);
   document.getElementById('d-goto-link').href = positionUrl(id);
+  refreshDossierPhoto(n);
   document.getElementById('d-dept').value = n.dept || '';
   document.getElementById('d-email').value = n.email || '';
   document.getElementById('d-phone').value = n.phone || '';
@@ -531,16 +711,33 @@ document.getElementById('dossier-close').onclick = () => {
   selectedId = null;
 };
 
+const COPY_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+const CHECK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+
 document.getElementById('d-copy-link').onclick = async () => {
   const input = document.getElementById('d-link');
   input.select();
+  const btn = document.getElementById('d-copy-link');
   try{
     await navigator.clipboard.writeText(input.value);
-    const btn = document.getElementById('d-copy-link');
-    const old = btn.textContent;
-    btn.textContent = 'Скопировано';
-    setTimeout(() => btn.textContent = old, 1200);
+    btn.innerHTML = CHECK_ICON;
+    btn.title = 'Скопировано';
+    setTimeout(() => { btn.innerHTML = COPY_ICON; btn.title = 'Копировать ссылку'; }, 1200);
   }catch(e){ /* clipboard may be blocked in sandboxed preview */ }
+};
+
+document.getElementById('d-photo-btn').onclick = () => document.getElementById('d-photo').click();
+document.getElementById('d-photo').onchange = async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    pendingEditPhoto = await fileToPhotoDataUrl(file);
+    refreshDossierPhoto(nodes[selectedId]);
+  }catch(err){ alert('Не удалось обработать изображение.'); }
+};
+document.getElementById('d-photo-remove').onclick = () => {
+  pendingEditPhoto = null;
+  refreshDossierPhoto(nodes[selectedId]);
 };
 
 document.getElementById('d-save').onclick = async () => {
@@ -552,6 +749,7 @@ document.getElementById('d-save').onclick = async () => {
   n.email = document.getElementById('d-email').value.trim();
   n.phone = document.getElementById('d-phone').value.trim();
   n.managerId = newManager;
+  if(pendingEditPhoto !== undefined){ n.photo = pendingEditPhoto || ''; }
   await saveData();
   render();
   applyTransform();
@@ -577,7 +775,8 @@ function buildStandaloneProfileHtml(n){
     background-size:34px 34px; font-family:'Inter',sans-serif;}
   .card{background:#F4F0E6; width:480px; max-width:92vw; border-radius:6px; box-shadow:0 30px 80px rgba(0,0,0,0.55); color:#1C1B18; overflow:hidden;}
   .tab{height:8px; background:#4FC3D9;}
-  .head{padding:24px 24px 14px; border-bottom:1px dashed #E4DDC9;}
+  .head{padding:24px 24px 14px; border-bottom:1px dashed #E4DDC9; display:flex; gap:16px; align-items:flex-start;}
+  .head-photo{width:84px; height:110px; flex-shrink:0; border-radius:4px; object-fit:cover; border:1px solid #E4DDC9;}
   .role{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#5C574C;}
   .name{font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:700; margin-top:6px;}
   .body{padding:20px 24px;}
@@ -592,8 +791,11 @@ function buildStandaloneProfileHtml(n){
   <div class="card">
     <div class="tab"></div>
     <div class="head">
-      <div class="role">${escapeHtml(n.title || 'Без названия')}</div>
-      <div class="name">${escapeHtml(n.name || '—')}</div>
+      ${n.photo ? `<img src="${n.photo}" class="head-photo">` : ''}
+      <div>
+        <div class="role">${escapeHtml(n.title || 'Без названия')}</div>
+        <div class="name">${escapeHtml(n.name || '—')}</div>
+      </div>
     </div>
     <div class="body">
       <div class="field"><label>Отдел / заметка</label><div class="val">${escapeHtml(n.dept || '—')}</div></div>
@@ -685,8 +887,27 @@ document.getElementById('dossier-back').addEventListener('click', (e) => {
   exitSoloMode();
 });
 
+// ---- Theme ----
+const THEME_KEY = 'orgchart-theme-v1';
+function applyThemeIcon(isLight){
+  document.getElementById('theme-icon-moon').style.display = isLight ? 'none' : '';
+  document.getElementById('theme-icon-sun').style.display = isLight ? '' : 'none';
+}
+function loadTheme(){
+  const isLight = localStorage.getItem(THEME_KEY) === 'light';
+  document.body.classList.toggle('light-theme', isLight);
+  applyThemeIcon(isLight);
+}
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const isLight = !document.body.classList.contains('light-theme');
+  document.body.classList.toggle('light-theme', isLight);
+  applyThemeIcon(isLight);
+  try{ localStorage.setItem(THEME_KEY, isLight ? 'light' : 'dark'); }catch(e){}
+});
+
 // ---- Init ----
 (async function init(){
+  loadTheme();
   await loadData();
   render();
   applyTransform();
