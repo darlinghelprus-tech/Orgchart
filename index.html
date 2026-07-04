@@ -66,7 +66,7 @@
 
   .node-card{
     position:absolute;
-    width:214px;
+    width:196px;
     background:var(--card-paper);
     border:1px solid var(--card-paper-edge);
     box-shadow: 0 2px 0 rgba(0,0,0,0.25);
@@ -79,13 +79,7 @@
     height:6px; width:100%;
   }
   .node-card .body{padding:12px 14px 10px;}
-  .node-card .body-row{display:flex; gap:10px; align-items:flex-start;}
-  .node-card .body-text{min-width:0; flex:1;}
-  .card-photo{
-    width:34px; height:44px; flex-shrink:0; border-radius:3px; object-fit:cover;
-    border:1px solid var(--card-paper-edge);
-  }
-  .card-photo-empty{background:repeating-linear-gradient(135deg, var(--card-paper-edge), var(--card-paper-edge) 3px, transparent 3px, transparent 6px);}
+
   .node-card .title{
     font-family:'IBM Plex Mono',monospace;
     font-size:10px;
@@ -201,7 +195,7 @@
     transition:background .15s, color .15s, border-color .15s;
   }
   .btn-icon-square:hover{background:var(--ink); color:#F4F0E6; border-color:var(--ink);}
-  #dossier.solo #d-goto-link{display:none;}
+  #dossier.solo #d-goto-link{display:none !important;}
   .btn-ghost{background:transparent; color:var(--ink-soft); border:1px solid var(--card-paper-edge); padding:8px 14px; border-radius:4px; cursor:pointer; font-size:13px;}
 
   /* Detail / dossier panel */
@@ -233,15 +227,48 @@
   }
   #dossier.solo .d-back{display:inline-block;}
   #dossier .d-tab{height:8px;}
-  #dossier .d-head{padding:24px 24px 14px; border-bottom:1px dashed var(--card-paper-edge);}
   #dossier .d-close{
     position:absolute; top:18px; right:18px; background:none; border:none;
     font-size:20px; cursor:pointer; color:var(--ink-soft); line-height:1;
   }
-  #dossier .d-title{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft);}
-  #dossier .d-name{font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:700; margin-top:6px;}
-  #dossier .d-body{padding:20px 24px;}
-  #dossier .d-actions{display:flex; gap:8px; padding:0 24px 24px;}
+  #dossier .d-formhead{padding:22px 24px 0;}
+  #dossier .d-formhead-row{display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--ink); padding-bottom:12px;}
+  #dossier .d-doc-title{font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700; letter-spacing:0.05em;}
+  #dossier .d-doc-num{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft);}
+
+  #dossier .d-form{display:flex; gap:18px; padding:18px 24px 6px; align-items:flex-start;}
+  #dossier .d-form-fields{flex:1; min-width:0;}
+  .fnum{display:flex; gap:8px; margin-bottom:12px;}
+  .fnum-n{
+    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft);
+    width:16px; flex-shrink:0; padding-top:20px;
+  }
+  .fnum .field{flex:1; min-width:0; margin-bottom:0;}
+  .fnum .field input, .fnum .field select, .fnum .field textarea{
+    border:none; border-bottom:1px solid var(--card-paper-edge);
+    border-radius:0; padding:4px 2px; background:transparent;
+  }
+  .fnum .field input:focus, .fnum .field select:focus, .fnum .field textarea:focus{
+    outline:none; border-bottom-color:var(--accent-cyan-dim);
+  }
+  .fnum .field textarea{min-height:40px;}
+  .readonly-val{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft); padding:4px 2px;}
+
+  #dossier .d-form-photo{flex-shrink:0; width:110px; display:flex; flex-direction:column; gap:8px; align-items:center;}
+  .photo-box{
+    width:100px; height:132px; border:1px solid var(--ink); border-radius:2px;
+    background:#fff; cursor:pointer; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--ink-soft); text-align:center; line-height:1.4;
+  }
+  .photo-box img{width:100%; height:100%; object-fit:cover;}
+  .stamp-box{
+    font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--ink-soft);
+    text-align:center; line-height:1.5;
+  }
+
+  #dossier .d-body{padding:6px 24px 20px;}
+  #dossier .d-actions{display:flex; gap:8px; padding:0 24px 24px; flex-wrap:wrap;}
 
   ::-webkit-scrollbar{width:8px;}
   ::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb); border-radius:4px;}
@@ -322,34 +349,79 @@
 <div id="dossier">
   <button class="d-close" id="dossier-close">✕</button>
   <div class="d-tab" id="dossier-tab"></div>
-  <div class="d-head">
+  <div class="d-formhead">
     <a class="d-back" id="dossier-back" href="#">← Показать всю схему</a>
-    <div style="display:flex; gap:14px; align-items:flex-start;">
-      <div class="photo-preview" id="dossier-photo-wrap" style="width:70px; height:92px;">
-        <img id="dossier-photo" style="display:none;">
-        <span id="dossier-photo-placeholder">Нет фото</span>
-      </div>
-      <div>
-        <div class="d-title" id="dossier-role">Должность</div>
-        <div class="d-name" id="dossier-name">Имя</div>
-      </div>
+    <div class="d-formhead-row">
+      <div class="d-doc-title">АНКЕТА</div>
+      <div class="d-doc-num">№ <span id="d-id-code">—</span></div>
     </div>
   </div>
-  <div class="d-body">
-    <div class="field">
-      <label>Фотография</label>
-      <div class="photo-row">
-        <div class="photo-preview" id="d-photo-preview-wrap">
-          <img id="d-photo-preview" style="display:none;">
-          <span id="d-photo-placeholder">Нет фото</span>
+
+  <div class="d-form">
+    <div class="d-form-fields">
+      <div class="fnum">
+        <span class="fnum-n">1</span>
+        <div class="field">
+          <label>ФИО</label>
+          <input id="d-name" type="text" placeholder="Иванов Иван Иванович">
         </div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <input type="file" id="d-photo" accept="image/*" style="display:none">
-          <button type="button" class="btn-ghost" id="d-photo-btn">Изменить фото</button>
-          <button type="button" class="btn-ghost" id="d-photo-remove" style="display:none;">Убрать фото</button>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">2</span>
+        <div class="field">
+          <label>Должность</label>
+          <input id="d-title" type="text" placeholder="Например: Руководитель отдела продаж">
+        </div>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">3</span>
+        <div class="field">
+          <label>Отдел / заметка</label>
+          <textarea id="d-dept" placeholder="Например: Отдел продаж, направление B2B"></textarea>
+        </div>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">4</span>
+        <div class="field">
+          <label>Email</label>
+          <input id="d-email" type="text" placeholder="name@company.com">
+        </div>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">5</span>
+        <div class="field">
+          <label>Телефон</label>
+          <input id="d-phone" type="text" placeholder="+7 900 000-00-00">
+        </div>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">6</span>
+        <div class="field">
+          <label>Руководитель</label>
+          <select id="d-manager"></select>
+        </div>
+      </div>
+      <div class="fnum">
+        <span class="fnum-n">7</span>
+        <div class="field">
+          <label>Подчинённые</label>
+          <div id="d-subs" class="readonly-val">—</div>
         </div>
       </div>
     </div>
+
+    <div class="d-form-photo">
+      <div class="photo-box" id="d-photo-box" title="Нажмите, чтобы загрузить фото">
+        <img id="d-photo-preview" style="display:none;">
+        <span id="d-photo-placeholder">Место<br>для<br>фотографии</span>
+      </div>
+      <input type="file" id="d-photo" accept="image/*" style="display:none">
+      <button type="button" class="btn-ghost" id="d-photo-remove" style="display:none;">Убрать фото</button>
+      <div class="stamp-box" id="d-updated-at">—</div>
+    </div>
+  </div>
+
+  <div class="d-body">
     <div class="field">
       <label>Персональная ссылка на должность</label>
       <div style="display:flex; gap:6px;">
@@ -359,26 +431,6 @@
         </button>
         <a class="btn-dark" id="d-goto-link" style="white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center;" target="_blank" rel="noopener">Перейти</a>
       </div>
-    </div>
-    <div class="field">
-      <label>Отдел / заметка</label>
-      <textarea id="d-dept" placeholder="Например: Отдел продаж, направление B2B"></textarea>
-    </div>
-    <div class="field">
-      <label>Email</label>
-      <input id="d-email" type="text" placeholder="name@company.com">
-    </div>
-    <div class="field">
-      <label>Телефон</label>
-      <input id="d-phone" type="text" placeholder="+7 900 000-00-00">
-    </div>
-    <div class="field">
-      <label>Руководитель</label>
-      <select id="d-manager"></select>
-    </div>
-    <div class="field">
-      <label>Подчинённые</label>
-      <div id="d-subs" style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft);">—</div>
     </div>
   </div>
   <div class="d-actions">
@@ -470,7 +522,7 @@ function roots(){
 }
 
 // ---- Layout (simple tree layout) ----
-const SPACING_X = 250, SPACING_Y = 150;
+const SPACING_X = 230, SPACING_Y = 150;
 let layoutPos = {}; // id -> {x,y,depth}
 
 function computeLayout(){
@@ -507,8 +559,8 @@ function render(){
     // connector to manager
     if(n.managerId && nodes[n.managerId] && layoutPos[n.managerId]){
       const p = layoutPos[n.managerId];
-      const x1 = p.x + 107, y1 = p.y + 84;
-      const x2 = pos.x + 107, y2 = pos.y;
+      const x1 = p.x + 98, y1 = p.y + 78;
+      const x2 = pos.x + 98, y2 = pos.y;
       const midY = (y1 + y2) / 2;
       const path = document.createElementNS('http://www.w3.org/2000/svg','path');
       path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
@@ -522,19 +574,11 @@ function render(){
     card.style.top = pos.y + 'px';
     card.dataset.id = n.id;
     const color = LEVEL_COLORS[pos.depth % LEVEL_COLORS.length];
-    const photoHtml = n.photo
-      ? `<img src="${n.photo}" class="card-photo">`
-      : `<div class="card-photo card-photo-empty"></div>`;
     card.innerHTML = `
       <div class="tab" style="background:${color}"></div>
       <div class="body">
-        <div class="body-row">
-          ${photoHtml}
-          <div class="body-text">
-            <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
-            <div class="name">${escapeHtml(n.name || '—')}</div>
-          </div>
-        </div>
+        <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
+        <div class="name">${escapeHtml(n.name || '—')}</div>
         <div class="footer"><span>${n.dept ? escapeHtml(n.dept) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
     card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
@@ -641,7 +685,7 @@ document.getElementById('modal-save').onclick = async () => {
   if(!title){ alert('Укажите название должности'); return; }
   const dept = document.getElementById('f-dept').value.trim();
   const id = uid();
-  nodes[id] = {id, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || ''};
+  nodes[id] = {id, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || '', updatedAt: new Date().toISOString()};
   await saveData();
   render();
   applyTransform();
@@ -660,21 +704,23 @@ const dossier = document.getElementById('dossier');
 
 let pendingEditPhoto; // undefined = no change, null = removed, string = new photo
 
+function formatUpdatedAt(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return 'Обновлено ' + d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+}
+
 function refreshDossierPhoto(n){
   const hasPhoto = pendingEditPhoto !== undefined ? !!pendingEditPhoto : !!n.photo;
   const src = pendingEditPhoto !== undefined ? pendingEditPhoto : n.photo;
-  const headImg = document.getElementById('dossier-photo');
-  const headPlaceholder = document.getElementById('dossier-photo-placeholder');
-  const editImg = document.getElementById('d-photo-preview');
-  const editPlaceholder = document.getElementById('d-photo-placeholder');
+  const img = document.getElementById('d-photo-preview');
+  const placeholder = document.getElementById('d-photo-placeholder');
   const removeBtn = document.getElementById('d-photo-remove');
   if(hasPhoto && src){
-    headImg.src = src; headImg.style.display = ''; headPlaceholder.style.display = 'none';
-    editImg.src = src; editImg.style.display = ''; editPlaceholder.style.display = 'none';
+    img.src = src; img.style.display = ''; placeholder.style.display = 'none';
     removeBtn.style.display = '';
   } else {
-    headImg.style.display = 'none'; headPlaceholder.style.display = '';
-    editImg.style.display = 'none'; editPlaceholder.style.display = '';
+    img.style.display = 'none'; placeholder.style.display = '';
     removeBtn.style.display = 'none';
   }
 }
@@ -683,8 +729,10 @@ function openDossier(id){
   selectedId = id;
   pendingEditPhoto = undefined;
   const n = nodes[id];
-  document.getElementById('dossier-role').textContent = n.title || 'Без названия';
-  document.getElementById('dossier-name').textContent = n.name || '—';
+  document.getElementById('d-title').value = n.title || '';
+  document.getElementById('d-name').value = n.name || '';
+  document.getElementById('d-id-code').textContent = n.id.slice(2,7).toUpperCase();
+  document.getElementById('d-updated-at').textContent = formatUpdatedAt(n.updatedAt);
   const depth = (layoutPos[id] && layoutPos[id].depth) || 0;
   document.getElementById('dossier-tab').style.background = LEVEL_COLORS[depth % LEVEL_COLORS.length];
   document.getElementById('d-link').value = positionUrl(id);
@@ -726,7 +774,7 @@ document.getElementById('d-copy-link').onclick = async () => {
   }catch(e){ /* clipboard may be blocked in sandboxed preview */ }
 };
 
-document.getElementById('d-photo-btn').onclick = () => document.getElementById('d-photo').click();
+document.getElementById('d-photo-box').onclick = () => document.getElementById('d-photo').click();
 document.getElementById('d-photo').onchange = async (e) => {
   const file = e.target.files[0];
   if(!file) return;
@@ -735,7 +783,8 @@ document.getElementById('d-photo').onchange = async (e) => {
     refreshDossierPhoto(nodes[selectedId]);
   }catch(err){ alert('Не удалось обработать изображение.'); }
 };
-document.getElementById('d-photo-remove').onclick = () => {
+document.getElementById('d-photo-remove').onclick = (e) => {
+  e.stopPropagation();
   pendingEditPhoto = null;
   refreshDossierPhoto(nodes[selectedId]);
 };
@@ -743,13 +792,18 @@ document.getElementById('d-photo-remove').onclick = () => {
 document.getElementById('d-save').onclick = async () => {
   if(!selectedId) return;
   const n = nodes[selectedId];
+  const newTitle = document.getElementById('d-title').value.trim();
+  if(!newTitle){ alert('Укажите название должности'); return; }
   const newManager = document.getElementById('d-manager').value || null;
   if(newManager === selectedId){ alert('Должность не может быть руководителем самой себя'); return; }
+  n.title = newTitle;
+  n.name = document.getElementById('d-name').value.trim();
   n.dept = document.getElementById('d-dept').value.trim();
   n.email = document.getElementById('d-email').value.trim();
   n.phone = document.getElementById('d-phone').value.trim();
   n.managerId = newManager;
   if(pendingEditPhoto !== undefined){ n.photo = pendingEditPhoto || ''; }
+  n.updatedAt = new Date().toISOString();
   await saveData();
   render();
   applyTransform();
