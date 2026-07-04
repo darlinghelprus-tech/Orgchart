@@ -140,9 +140,10 @@
   #topbar .brand{font-size:15px; font-weight:600; letter-spacing:0.02em;}
   #topbar .sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ui-text-dim); margin-top:2px;}
 
+  /* Placed top-left, below the title, so it never sits under a right-hand panel */
   #theme-toggle{
-    position:fixed; top:18px; right:18px; z-index:50;
-    width:40px; height:40px; border-radius:10px;
+    position:fixed; top:64px; left:18px; z-index:151;
+    width:36px; height:36px; border-radius:9px; flex-shrink:0;
     background:var(--panel-bg); border:1px solid var(--ui-border-soft);
     color:var(--ui-text); cursor:pointer;
     display:flex; align-items:center; justify-content:center;
@@ -231,37 +232,47 @@
     position:absolute; top:18px; right:18px; background:none; border:none;
     font-size:20px; cursor:pointer; color:var(--ink-soft); line-height:1;
   }
-  #dossier .d-formhead{padding:22px 24px 0;}
-  #dossier .d-formhead-row{display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--ink); padding-bottom:12px;}
-  #dossier .d-doc-title{font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700; letter-spacing:0.05em;}
-  #dossier .d-doc-num{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft);}
+  #dossier .d-sheet{
+    margin:18px 20px 0; border:1px solid var(--ink);
+    padding:0;
+  }
+  #dossier .d-formhead{padding:16px 20px 0;}
+  #dossier .d-formhead-row{display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid var(--ink); padding-bottom:10px;}
+  #dossier .d-doc-title{font-family:'Space Grotesk',sans-serif; font-size:16px; font-weight:700; letter-spacing:0.04em;}
+  #dossier .d-doc-num{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft);}
 
-  #dossier .d-form{display:flex; gap:18px; padding:18px 24px 6px; align-items:flex-start;}
-  #dossier .d-form-fields{flex:1; min-width:0;}
-  .fnum{display:flex; gap:8px; margin-bottom:12px;}
-  .fnum-n{
-    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-soft);
-    width:16px; flex-shrink:0; padding-top:20px;
+  #dossier .d-form{display:flex; padding:16px 0 8px; align-items:stretch;}
+  #dossier .d-form-fields{flex:1; min-width:0; padding:0 18px;}
+  .fnum{margin-bottom:12px;}
+  .fnum-title{font-family:'Inter',sans-serif; font-size:12.5px; color:var(--ink); margin-bottom:4px;}
+  .fnum-n{font-family:'IBM Plex Mono',monospace; color:var(--ink-soft); margin-right:2px;}
+  .fnum input, .fnum select, .fnum textarea{
+    width:100%; border:none; border-bottom:1px solid var(--ink);
+    border-radius:0; padding:3px 2px; background:transparent; font-size:13px;
+    font-family:'Inter',sans-serif; color:var(--ink);
   }
-  .fnum .field{flex:1; min-width:0; margin-bottom:0;}
-  .fnum .field input, .fnum .field select, .fnum .field textarea{
-    border:none; border-bottom:1px solid var(--card-paper-edge);
-    border-radius:0; padding:4px 2px; background:transparent;
-  }
-  .fnum .field input:focus, .fnum .field select:focus, .fnum .field textarea:focus{
+  .fnum input:focus, .fnum select:focus, .fnum textarea:focus{
     outline:none; border-bottom-color:var(--accent-cyan-dim);
   }
-  .fnum .field textarea{min-height:40px;}
-  .readonly-val{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft); padding:4px 2px;}
+  .fnum textarea{min-height:32px; resize:vertical;}
+  .fcap{
+    font-family:'IBM Plex Mono',monospace; font-size:9px; font-style:italic;
+    color:var(--ink-soft); margin-top:3px;
+  }
+  .readonly-val{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--ink-soft); padding:4px 2px; border-bottom:1px solid var(--ink);}
 
-  #dossier .d-form-photo{flex-shrink:0; width:110px; display:flex; flex-direction:column; gap:8px; align-items:center;}
+  #dossier .d-form-photo{
+    flex-shrink:0; width:118px; display:flex; flex-direction:column; gap:8px; align-items:center;
+    padding:0 16px; border-left:1px solid var(--ink);
+  }
   .photo-box{
-    width:100px; height:132px; border:1px solid var(--ink); border-radius:2px;
+    width:96px; height:128px; border:1px solid var(--ink); border-radius:0;
     background:#fff; cursor:pointer; overflow:hidden;
     display:flex; align-items:center; justify-content:center;
     font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--ink-soft); text-align:center; line-height:1.4;
   }
   .photo-box img{width:100%; height:100%; object-fit:cover;}
+  .photo-caption{font-family:'IBM Plex Mono',monospace; font-size:8px; font-style:italic; color:var(--ink-soft); text-align:center;}
   .stamp-box{
     font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--ink-soft);
     text-align:center; line-height:1.5;
@@ -349,75 +360,64 @@
 <div id="dossier">
   <button class="d-close" id="dossier-close">✕</button>
   <div class="d-tab" id="dossier-tab"></div>
-  <div class="d-formhead">
-    <a class="d-back" id="dossier-back" href="#">← Показать всю схему</a>
-    <div class="d-formhead-row">
-      <div class="d-doc-title">АНКЕТА</div>
-      <div class="d-doc-num">№ <span id="d-id-code">—</span></div>
-    </div>
-  </div>
+  <a class="d-back" id="dossier-back" href="#" style="margin:14px 24px 0; display:block;">← Показать всю схему</a>
 
-  <div class="d-form">
-    <div class="d-form-fields">
-      <div class="fnum">
-        <span class="fnum-n">1</span>
-        <div class="field">
-          <label>ФИО</label>
+  <div class="d-sheet">
+    <div class="d-formhead">
+      <div class="d-formhead-row">
+        <div class="d-doc-title">АНКЕТА СОТРУДНИКА</div>
+        <div class="d-doc-num">№ <span id="d-id-code">—</span></div>
+      </div>
+    </div>
+
+    <div class="d-form">
+      <div class="d-form-fields">
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">1.</span> ФИО</div>
           <input id="d-name" type="text" placeholder="Иванов Иван Иванович">
+          <div class="fcap">фамилия, имя, отчество</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">2</span>
-        <div class="field">
-          <label>Должность</label>
-          <input id="d-title" type="text" placeholder="Например: Руководитель отдела продаж">
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">2.</span> Должность</div>
+          <input id="d-title" type="text" placeholder="Руководитель отдела продаж">
+          <div class="fcap">согласно штатному расписанию</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">3</span>
-        <div class="field">
-          <label>Отдел / заметка</label>
-          <textarea id="d-dept" placeholder="Например: Отдел продаж, направление B2B"></textarea>
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">3.</span> Отдел / подразделение</div>
+          <textarea id="d-dept" placeholder="Отдел продаж, направление B2B"></textarea>
+          <div class="fcap">подразделение, направление</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">4</span>
-        <div class="field">
-          <label>Email</label>
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">4.</span> Email</div>
           <input id="d-email" type="text" placeholder="name@company.com">
+          <div class="fcap">рабочая почта</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">5</span>
-        <div class="field">
-          <label>Телефон</label>
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">5.</span> Телефон</div>
           <input id="d-phone" type="text" placeholder="+7 900 000-00-00">
+          <div class="fcap">рабочий или мобильный</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">6</span>
-        <div class="field">
-          <label>Руководитель</label>
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">6.</span> Непосредственный руководитель</div>
           <select id="d-manager"></select>
+          <div class="fcap">должность в иерархии</div>
         </div>
-      </div>
-      <div class="fnum">
-        <span class="fnum-n">7</span>
-        <div class="field">
-          <label>Подчинённые</label>
+        <div class="fnum">
+          <div class="fnum-title"><span class="fnum-n">7.</span> Подчинённые</div>
           <div id="d-subs" class="readonly-val">—</div>
+          <div class="fcap">заполняется автоматически</div>
         </div>
       </div>
-    </div>
 
-    <div class="d-form-photo">
-      <div class="photo-box" id="d-photo-box" title="Нажмите, чтобы загрузить фото">
-        <img id="d-photo-preview" style="display:none;">
-        <span id="d-photo-placeholder">Место<br>для<br>фотографии</span>
+      <div class="d-form-photo">
+        <div class="photo-box" id="d-photo-box" title="Нажмите, чтобы загрузить фото">
+          <img id="d-photo-preview" style="display:none;">
+          <span id="d-photo-placeholder">Место<br>для<br>фотографии</span>
+        </div>
+        <input type="file" id="d-photo" accept="image/*" style="display:none">
+        <button type="button" class="btn-ghost" id="d-photo-remove" style="display:none;">Убрать фото</button>
+        <div class="stamp-box" id="d-updated-at">—</div>
       </div>
-      <input type="file" id="d-photo" accept="image/*" style="display:none">
-      <button type="button" class="btn-ghost" id="d-photo-remove" style="display:none;">Убрать фото</button>
-      <div class="stamp-box" id="d-updated-at">—</div>
     </div>
   </div>
 
