@@ -214,6 +214,10 @@
       <label>Руководитель</label>
       <select id="f-manager"></select>
     </div>
+    <div class="field">
+      <label>Отдел / заметка</label>
+      <textarea id="f-dept" placeholder="Например: Отдел продаж, направление B2B"></textarea>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" id="modal-cancel">Отмена</button>
       <button class="btn-dark" id="modal-save">Добавить</button>
@@ -453,6 +457,7 @@ const overlay = document.getElementById('modal-overlay');
 document.getElementById('add-btn').onclick = () => {
   document.getElementById('f-title').value = '';
   document.getElementById('f-name').value = '';
+  document.getElementById('f-dept').value = '';
   overlay.classList.add('open');
 };
 document.getElementById('modal-cancel').onclick = () => overlay.classList.remove('open');
@@ -463,8 +468,9 @@ document.getElementById('modal-save').onclick = async () => {
   const name = document.getElementById('f-name').value.trim();
   const managerId = document.getElementById('f-manager').value || null;
   if(!title){ alert('Укажите название должности'); return; }
+  const dept = document.getElementById('f-dept').value.trim();
   const id = uid();
-  nodes[id] = {id, title, name, managerId, dept:'', email:'', phone:''};
+  nodes[id] = {id, title, name, managerId, dept, email:'', phone:''};
   await saveData();
   render();
   applyTransform();
