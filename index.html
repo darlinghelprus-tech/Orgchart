@@ -259,6 +259,7 @@
       <div style="display:flex; gap:6px;">
         <input id="d-link" type="text" readonly style="font-family:'IBM Plex Mono',monospace; font-size:12px;">
         <button class="btn-ghost" id="d-copy-link" style="white-space:nowrap;">Копировать</button>
+        <a class="btn-dark" id="d-goto-link" style="white-space:nowrap; text-decoration:none; display:inline-flex; align-items:center;" target="_blank" rel="noopener">Перейти</a>
       </div>
     </div>
     <div class="field">
@@ -284,6 +285,7 @@
   </div>
   <div class="d-actions">
     <button class="btn-dark" id="d-save">Сохранить</button>
+    <button class="btn-ghost" id="d-download">Скачать анкету</button>
     <button class="btn-ghost" id="d-delete" style="color:var(--danger); border-color:var(--danger);">Удалить должность</button>
   </div>
 </div>
@@ -507,6 +509,7 @@ function openDossier(id){
   const depth = (layoutPos[id] && layoutPos[id].depth) || 0;
   document.getElementById('dossier-tab').style.background = LEVEL_COLORS[depth % LEVEL_COLORS.length];
   document.getElementById('d-link').value = positionUrl(id);
+  document.getElementById('d-goto-link').href = positionUrl(id);
   document.getElementById('d-dept').value = n.dept || '';
   document.getElementById('d-email').value = n.email || '';
   document.getElementById('d-phone').value = n.phone || '';
@@ -553,6 +556,70 @@ document.getElementById('d-save').onclick = async () => {
   render();
   applyTransform();
   openDossier(selectedId);
+};
+
+function buildStandaloneProfileHtml(n){
+  const managerName = n.managerId && nodes[n.managerId] ? (nodes[n.managerId].name || nodes[n.managerId].title) : '—';
+  const subs = children(n.id);
+  const subsHtml = subs.length
+    ? subs.map(s => `<li>${escapeHtml(s.name || '—')} — ${escapeHtml(s.title || '')}</li>`).join('')
+    : '<li>Нет подчинённых</li>';
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtml(n.name || n.title)} — анкета</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body{margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#0B1826; background-image:radial-gradient(circle,#1B2E42 1.2px,transparent 1.2px);
+    background-size:34px 34px; font-family:'Inter',sans-serif;}
+  .card{background:#F4F0E6; width:480px; max-width:92vw; border-radius:6px; box-shadow:0 30px 80px rgba(0,0,0,0.55); color:#1C1B18; overflow:hidden;}
+  .tab{height:8px; background:#4FC3D9;}
+  .head{padding:24px 24px 14px; border-bottom:1px dashed #E4DDC9;}
+  .role{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#5C574C;}
+  .name{font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:700; margin-top:6px;}
+  .body{padding:20px 24px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.05em; color:#5C574C; margin-bottom:5px;}
+  .field .val{font-size:14px;}
+  ul{margin:0; padding-left:18px; font-size:13px;}
+  .stamp{padding:14px 24px 22px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:#8a8477;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="tab"></div>
+    <div class="head">
+      <div class="role">${escapeHtml(n.title || 'Без названия')}</div>
+      <div class="name">${escapeHtml(n.name || '—')}</div>
+    </div>
+    <div class="body">
+      <div class="field"><label>Отдел / заметка</label><div class="val">${escapeHtml(n.dept || '—')}</div></div>
+      <div class="field"><label>Email</label><div class="val">${escapeHtml(n.email || '—')}</div></div>
+      <div class="field"><label>Телефон</label><div class="val">${escapeHtml(n.phone || '—')}</div></div>
+      <div class="field"><label>Руководитель</label><div class="val">${escapeHtml(managerName)}</div></div>
+      <div class="field"><label>Подчинённые</label><ul>${subsHtml}</ul></div>
+    </div>
+    <div class="stamp">ID ${n.id.toUpperCase()} · сохранено ${new Date().toLocaleDateString('ru-RU')}</div>
+  </div>
+</body>
+</html>`;
+}
+
+document.getElementById('d-download').onclick = () => {
+  if(!selectedId) return;
+  const n = nodes[selectedId];
+  const html = buildStandaloneProfileHtml(n);
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = (n.name || n.title || 'anketa').replace(/[^a-zA-Zа-яА-Я0-9]+/g, '_');
+  a.href = url;
+  a.download = `anketa_${safeName}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 document.getElementById('d-delete').onclick = async () => {
