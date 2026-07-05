@@ -63,6 +63,34 @@
 
   svg#connectors{position:absolute; top:0; left:0; overflow:visible; pointer-events:none;}
   .connector-path{fill:none; stroke:var(--accent-cyan-dim); stroke-width:2;}
+  .org-connector-path{fill:none; stroke:var(--accent-cyan); stroke-width:3; stroke-dasharray:7 5;}
+
+  /* Organization frame */
+  .org-frame{
+    position:absolute; border:2px dashed var(--accent-cyan-dim); border-radius:12px;
+    background:rgba(255,255,255,0.015);
+  }
+  .org-frame-header{
+    position:absolute; top:0; left:0; right:0; height:44px;
+    display:flex; align-items:center; justify-content:flex-end;
+    padding:0 14px; border-bottom:1px dashed var(--accent-cyan-dim);
+    cursor:grab;
+  }
+  .org-frame-header:active{cursor:grabbing;}
+  .org-name-input{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    max-width:72%; background:transparent; border:none; text-align:center;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; color:var(--ui-text);
+    padding:3px 6px; border-radius:4px; cursor:text;
+  }
+  .org-name-input:hover{background:var(--ui-hover-bg);}
+  .org-name-input:focus{outline:1px solid var(--accent-cyan); background:var(--ui-hover-bg);}
+  .org-plus-btn{
+    flex-shrink:0; width:24px; height:24px; border-radius:50%; border:1px solid var(--ui-border);
+    background:var(--panel-bg); color:var(--ui-text); cursor:pointer; font-size:15px; line-height:1;
+    display:flex; align-items:center; justify-content:center; position:relative; z-index:2;
+  }
+  .org-plus-btn:hover{background:var(--ui-hover-bg);}
 
   .node-card{
     position:absolute;
@@ -109,6 +137,32 @@
     box-shadow: 0 8px 18px rgba(0,0,0,0.35), 0 0 0 2px var(--accent-cyan);
     transform: translateY(-4px);
   }
+  .card-plus{
+    position:absolute; top:-9px; right:-9px; width:22px; height:22px; border-radius:50%;
+    background:var(--ink); color:#F4F0E6; border:2px solid var(--card-paper);
+    cursor:pointer; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(0,0,0,0.3);
+  }
+  .card-plus:hover{background:var(--accent-cyan-dim);}
+
+  /* Context menu */
+  .ctx-menu{
+    position:fixed; z-index:300; background:var(--card-paper); border:1px solid var(--card-paper-edge);
+    border-radius:6px; box-shadow:0 14px 34px rgba(0,0,0,0.4); min-width:220px; padding:6px;
+    display:none; font-family:'Inter',sans-serif; font-size:13px; color:var(--ink);
+    max-height:70vh; overflow-y:auto;
+  }
+  .ctx-menu.open{display:block;}
+  .ctx-item{padding:8px 10px; border-radius:4px; cursor:pointer;}
+  .ctx-item:hover{background:var(--card-paper-edge);}
+  .ctx-item.danger{color:var(--danger);}
+  .ctx-item.disabled{color:var(--ink-soft); cursor:default;}
+  .ctx-item.disabled:hover{background:transparent;}
+  .ctx-sep{height:1px; background:var(--card-paper-edge); margin:5px 2px;}
+  .ctx-label{
+    font-family:'IBM Plex Mono',monospace; font-size:9px; text-transform:uppercase;
+    letter-spacing:0.05em; color:var(--ink-soft); padding:6px 10px 2px;
+  }
 
   /* Toolbar */
   #toolbar{
@@ -152,7 +206,7 @@
   }
   #theme-toggle:hover{background:var(--ui-hover-bg);}
 
-  /* Modal (add position) */
+  /* Modal (add position / add organization) */
   .overlay{
     position:fixed; inset:0; background:var(--overlay-bg);
     display:flex; align-items:center; justify-content:center;
@@ -300,9 +354,11 @@
 <div id="world-wrapper">
   <div id="world">
     <svg id="connectors"></svg>
-    <!-- nodes injected here -->
+    <!-- org frames + nodes injected here -->
   </div>
 </div>
+
+<div class="ctx-menu" id="ctx-menu"></div>
 
 <div id="toolbar">
   <button class="btn icon" id="zoom-out">–</button>
@@ -313,6 +369,21 @@
   <button class="btn" id="import-btn">Импорт</button>
   <input type="file" id="import-file" accept="application/json" style="display:none">
   <button class="btn primary" id="add-btn">+ Добавить должность</button>
+</div>
+
+<!-- Add organization modal -->
+<div class="overlay" id="org-modal-overlay">
+  <div class="modal">
+    <h3>Новая организация</h3>
+    <div class="field">
+      <label>Название организации</label>
+      <input id="org-name-input" type="text" placeholder='Например: ООО «Ромашка»'>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="org-modal-cancel">Отмена</button>
+      <button class="btn-dark" id="org-modal-save">Создать</button>
+    </div>
+  </div>
 </div>
 
 <!-- Add/Edit position modal -->
@@ -332,6 +403,10 @@
           <button type="button" class="btn-ghost" id="f-photo-remove" style="display:none;">Убрать</button>
         </div>
       </div>
+    </div>
+    <div class="field">
+      <label>Организация</label>
+      <select id="f-org"></select>
     </div>
     <div class="field">
       <label>Название должности</label>
@@ -400,7 +475,7 @@
         <div class="fnum">
           <div class="fnum-title"><span class="fnum-n">6.</span> Непосредственный руководитель</div>
           <select id="d-manager"></select>
-          <div class="fcap">должность в иерархии</div>
+          <div class="fcap">должность в иерархии (в той же организации)</div>
         </div>
         <div class="fnum">
           <div class="fnum-title"><span class="fnum-n">7.</span> Подчинённые</div>
@@ -442,9 +517,11 @@
 
 <script>
 const LEVEL_COLORS = ['var(--lvl-0)','var(--lvl-1)','var(--lvl-2)','var(--lvl-3)'];
-const STORAGE_KEY = 'orgchart-tree-v1';
+const STORAGE_KEY = 'orgchart-tree-v2';
+const LEGACY_STORAGE_KEY = 'orgchart-tree-v1';
 
-let nodes = {};        // id -> {id,title,name,managerId,dept,email,phone}
+let orgs = {};         // orgId -> {id, name, parentOrgId, x, y}
+let nodes = {};        // id -> {id, orgId, title, name, managerId, dept, email, phone, photo, updatedAt}
 let selectedId = null;
 let scale = 1, panX = 60, panY = 60;
 
@@ -452,7 +529,7 @@ const worldWrapper = document.getElementById('world-wrapper');
 const world = document.getElementById('world');
 const svg = document.getElementById('connectors');
 
-function uid(){ return 'p_' + Math.random().toString(36).slice(2,9); }
+function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9); }
 
 // Resize/compress an uploaded photo to a passport-style thumbnail (keeps stored data small).
 function fileToPhotoDataUrl(file){
@@ -484,79 +561,217 @@ function positionUrl(id){
 }
 
 function defaultData(){
-  const ceo = uid();
-  const cto = uid();
-  const cfo = uid();
-  const dev = uid();
+  const orgId = uid('o');
+  const ceo = uid('p'), cto = uid('p'), cfo = uid('p'), dev = uid('p');
   return {
-    [ceo]: {id:ceo, title:'Генеральный директор', name:'Смирнова Анна', managerId:null, dept:'Правление', email:'', phone:''},
-    [cto]: {id:cto, title:'Технический директор', name:'Козлов Дмитрий', managerId:ceo, dept:'Технологии', email:'', phone:''},
-    [cfo]: {id:cfo, title:'Финансовый директор', name:'Петрова Елена', managerId:ceo, dept:'Финансы', email:'', phone:''},
-    [dev]: {id:dev, title:'Ведущий разработчик', name:'Николаев Артём', managerId:cto, dept:'Разработка', email:'', phone:''},
+    orgs: { [orgId]: {id:orgId, name:'ООО «Обнал»', parentOrgId:null, x:0, y:0} },
+    nodes: {
+      [ceo]: {id:ceo, orgId, title:'Генеральный директор', name:'Смирнова Анна', managerId:null, dept:'Правление', email:'', phone:''},
+      [cto]: {id:cto, orgId, title:'Технический директор', name:'Козлов Дмитрий', managerId:ceo, dept:'Технологии', email:'', phone:''},
+      [cfo]: {id:cfo, orgId, title:'Финансовый директор', name:'Петрова Елена', managerId:ceo, dept:'Финансы', email:'', phone:''},
+      [dev]: {id:dev, orgId, title:'Ведущий разработчик', name:'Николаев Артём', managerId:cto, dept:'Разработка', email:'', phone:''},
+    }
   };
+}
+
+// Accepts either the current {orgs,nodes} shape or a legacy flat positions map,
+// and always returns a normalized {orgs,nodes} pair.
+function normalizeLoadedData(parsed){
+  if(parsed && typeof parsed === 'object' && parsed.orgs && parsed.nodes){
+    return {orgs: parsed.orgs, nodes: parsed.nodes};
+  }
+  const orgId = uid('o');
+  const newOrgs = {[orgId]: {id:orgId, name:'ООО «Обнал»', parentOrgId:null, x:0, y:0}};
+  const newNodes = parsed && typeof parsed === 'object' ? parsed : {};
+  Object.values(newNodes).forEach(n => { if(!n.orgId) n.orgId = orgId; });
+  return {orgs:newOrgs, nodes:newNodes};
 }
 
 async function loadData(){
   try{
     const v = localStorage.getItem(STORAGE_KEY);
     if(v){
-      nodes = JSON.parse(v);
+      const parsed = JSON.parse(v);
+      const norm = normalizeLoadedData(parsed);
+      orgs = norm.orgs; nodes = norm.nodes;
+      return;
+    }
+    // Migrate data saved by the previous single-organization version of this app.
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if(legacy){
+      const parsedLegacy = JSON.parse(legacy);
+      const norm = normalizeLoadedData(parsedLegacy);
+      orgs = norm.orgs; nodes = norm.nodes;
+      await saveData();
       return;
     }
   }catch(e){ /* corrupted or empty, fall through to defaults */ }
-  nodes = defaultData();
+  const d = defaultData();
+  orgs = d.orgs; nodes = d.nodes;
   await saveData();
 }
 
 async function saveData(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({orgs, nodes}));
   }catch(e){ console.error('Ошибка сохранения', e); alert('Не удалось сохранить данные в этом браузере.'); }
 }
 
 function children(id){
   return Object.values(nodes).filter(n => n.managerId === id);
 }
-function roots(){
-  return Object.values(nodes).filter(n => !n.managerId || !nodes[n.managerId]);
+function orgRoots(orgId){
+  return Object.values(nodes).filter(n => n.orgId === orgId && (!n.managerId || !nodes[n.managerId] || nodes[n.managerId].orgId !== orgId));
+}
+function isAncestorOrg(ancestorId, orgId){
+  let cur = orgs[orgId];
+  let guard = 0;
+  while(cur && cur.parentOrgId && guard < 200){
+    if(cur.parentOrgId === ancestorId) return true;
+    cur = orgs[cur.parentOrgId];
+    guard++;
+  }
+  return false;
 }
 
-// ---- Layout (simple tree layout) ----
+// ---- Layout (per-organization tree layout, frames placed on one shared canvas) ----
 const SPACING_X = 230, SPACING_Y = 150;
-let layoutPos = {}; // id -> {x,y,depth}
+const ORG_HEADER_H = 44, ORG_PAD = 26, ORG_GAP = 90, CARD_W = 196, CARD_H = 78;
+let layoutPos = {};   // positionId -> {x,y,depth} (absolute canvas coords)
+let orgFrames = {};   // orgId -> {x,y,w,h,name}
 
 function computeLayout(){
   layoutPos = {};
-  let leafCounter = 0;
+  orgFrames = {};
+  let nextAutoX = 0;
 
-  function place(node, depth){
-    const kids = children(node.id);
-    if(kids.length === 0){
-      layoutPos[node.id] = {x: leafCounter * SPACING_X, y: depth * SPACING_Y, depth};
-      leafCounter++;
-    } else {
-      kids.forEach(k => place(k, depth+1));
-      const xs = kids.map(k => layoutPos[k.id].x);
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      layoutPos[node.id] = {x: cx, y: depth*SPACING_Y, depth};
+  Object.keys(orgs).forEach(orgId => {
+    const org = orgs[orgId];
+    let leafCounter = 0;
+    const localPos = {};
+
+    function place(node, depth){
+      const kids = children(node.id).filter(k => k.orgId === orgId);
+      if(kids.length === 0){
+        localPos[node.id] = {x: leafCounter*SPACING_X, y: depth*SPACING_Y, depth};
+        leafCounter++;
+      } else {
+        kids.forEach(k => place(k, depth+1));
+        const xs = kids.map(k => localPos[k.id].x);
+        localPos[node.id] = {x:(Math.min(...xs)+Math.max(...xs))/2, y:depth*SPACING_Y, depth};
+      }
     }
-  }
-  roots().forEach(r => { place(r, 0); leafCounter += 1; });
+    orgRoots(orgId).forEach(r => { place(r, 0); leafCounter += 1; });
+
+    const xs = Object.values(localPos).map(p => p.x);
+    const ys = Object.values(localPos).map(p => p.y);
+    const minX = xs.length ? Math.min(...xs) : 0;
+    const contentW = xs.length ? (Math.max(...xs) - minX + CARD_W) : CARD_W;
+    const contentH = ys.length ? (Math.max(...ys) + CARD_H + 20) : 90;
+
+    const frameW = contentW + ORG_PAD*2;
+    const frameH = ORG_HEADER_H + contentH + ORG_PAD*2;
+
+    let fx = org.x, fy = org.y;
+    if(fx === undefined || fx === null || fy === undefined || fy === null){
+      fx = nextAutoX; fy = 0;
+      org.x = fx; org.y = fy;
+    }
+    nextAutoX = Math.max(nextAutoX, fx + frameW + ORG_GAP);
+
+    orgFrames[orgId] = {x: fx, y: fy, w: frameW, h: frameH, name: org.name};
+
+    Object.keys(localPos).forEach(pid => {
+      const lp = localPos[pid];
+      layoutPos[pid] = {
+        x: fx + ORG_PAD + (lp.x - minX),
+        y: fy + ORG_HEADER_H + ORG_PAD + lp.y,
+        depth: lp.depth
+      };
+    });
+  });
 }
 
 // ---- Rendering ----
 function render(){
   computeLayout();
-  // clear
-  world.querySelectorAll('.node-card').forEach(el => el.remove());
+  world.querySelectorAll('.node-card, .org-frame').forEach(el => el.remove());
   svg.innerHTML = '';
 
   let maxX = 0, maxY = 0;
+
+  // Organization frames
+  Object.keys(orgFrames).forEach(orgId => {
+    const f = orgFrames[orgId];
+    maxX = Math.max(maxX, f.x + f.w); maxY = Math.max(maxY, f.y + f.h);
+    const frame = document.createElement('div');
+    frame.className = 'org-frame';
+    frame.style.left = f.x + 'px'; frame.style.top = f.y + 'px';
+    frame.style.width = f.w + 'px'; frame.style.height = f.h + 'px';
+    frame.dataset.orgId = orgId;
+    frame.innerHTML = `
+      <div class="org-frame-header">
+        <input class="org-name-input" data-org-id="${orgId}" value="${escapeHtml(f.name)}" spellcheck="false">
+        <button class="org-plus-btn" data-org-id="${orgId}" title="Действия организации">+</button>
+      </div>`;
+    const header = frame.querySelector('.org-frame-header');
+    const nameInput = frame.querySelector('.org-name-input');
+
+    frame.querySelector('.org-plus-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showCtxMenu(e.clientX, e.clientY, buildOrgPlusMenuHtml(orgId));
+    });
+
+    // Rename organization
+    nameInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+    nameInput.addEventListener('click', (e) => e.stopPropagation());
+    nameInput.addEventListener('change', async (e) => {
+      const newName = e.target.value.trim() || 'Без названия';
+      orgs[orgId].name = newName;
+      await saveData();
+      render();
+      applyTransform();
+    });
+
+    // Drag the whole organization frame by its header
+    header.addEventListener('click', (e) => e.stopPropagation());
+    header.addEventListener('pointerdown', (e) => {
+      if(e.target.closest('.org-plus-btn') || e.target.closest('.org-name-input')) return;
+      e.stopPropagation();
+      orgDragState = {
+        orgId,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startOrgX: orgs[orgId].x, startOrgY: orgs[orgId].y,
+        moved: false
+      };
+    });
+
+    world.appendChild(frame);
+  });
+
+  // Organization-to-organization connectors (drawn from whichever frame sits visually
+  // higher on the canvas down to the one below it, regardless of parent/child direction)
+  Object.values(orgs).forEach(org => {
+    if(org.parentOrgId && orgFrames[org.parentOrgId] && orgFrames[org.id]){
+      const a = orgFrames[org.parentOrgId], b = orgFrames[org.id];
+      const top = (a.y <= b.y) ? a : b;
+      const bottom = (a.y <= b.y) ? b : a;
+      const x1 = top.x + top.w/2, y1 = top.y + top.h;
+      const x2 = bottom.x + bottom.w/2, y2 = bottom.y;
+      const midY = (y1 + y2) / 2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
+      path.setAttribute('class','org-connector-path');
+      svg.appendChild(path);
+    }
+  });
+
+  // Position cards + connectors
   Object.values(nodes).forEach(n => {
     const pos = layoutPos[n.id];
+    if(!pos) return;
     maxX = Math.max(maxX, pos.x); maxY = Math.max(maxY, pos.y);
 
-    // connector to manager
     if(n.managerId && nodes[n.managerId] && layoutPos[n.managerId]){
       const p = layoutPos[n.managerId];
       const x1 = p.x + 98, y1 = p.y + 78;
@@ -575,6 +790,7 @@ function render(){
     card.dataset.id = n.id;
     const color = LEVEL_COLORS[pos.depth % LEVEL_COLORS.length];
     card.innerHTML = `
+      <button class="card-plus" data-id="${n.id}" title="Действия">+</button>
       <div class="tab" style="background:${color}"></div>
       <div class="body">
         <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
@@ -582,6 +798,10 @@ function render(){
         <div class="footer"><span>${n.dept ? escapeHtml(n.dept) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
     card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
+    card.querySelector('.card-plus').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showCtxMenu(e.clientX, e.clientY, buildCardPlusMenuHtml(n.id));
+    });
     world.appendChild(card);
   });
 
@@ -589,7 +809,6 @@ function render(){
   svg.setAttribute('height', maxY + 300);
 
   document.getElementById('node-count').textContent = Object.keys(nodes).length + ' должностей';
-  populateManagerSelects();
 }
 
 function escapeHtml(s){
@@ -601,22 +820,45 @@ function applyTransform(){
   document.getElementById('zoom-label').textContent = Math.round(scale*100) + '%';
 }
 
+function screenToWorld(clientX, clientY){
+  const rect = worldWrapper.getBoundingClientRect();
+  return { x: (clientX - rect.left - panX) / scale, y: (clientY - rect.top - panY) / scale };
+}
+
 // ---- Pan & zoom ----
-let dragging = false, dragStartX=0, dragStartY=0, panStartX=0, panStartY=0;
+let dragging = false, dragMoved = false, dragStartX=0, dragStartY=0, panStartX=0, panStartY=0;
+let orgDragState = null; // {orgId, startClientX, startClientY, startOrgX, startOrgY, moved}
 
 worldWrapper.addEventListener('pointerdown', (e) => {
-  dragging = true;
+  dragging = true; dragMoved = false;
   worldWrapper.classList.add('grabbing');
   dragStartX = e.clientX; dragStartY = e.clientY;
   panStartX = panX; panStartY = panY;
 });
 window.addEventListener('pointermove', (e) => {
+  if(orgDragState){
+    const dx = (e.clientX - orgDragState.startClientX) / scale;
+    const dy = (e.clientY - orgDragState.startClientY) / scale;
+    if(Math.abs(dx) > 2 || Math.abs(dy) > 2) orgDragState.moved = true;
+    orgs[orgDragState.orgId].x = orgDragState.startOrgX + dx;
+    orgs[orgDragState.orgId].y = orgDragState.startOrgY + dy;
+    render();
+    applyTransform();
+    return;
+  }
   if(!dragging) return;
+  if(Math.abs(e.clientX-dragStartX) > 3 || Math.abs(e.clientY-dragStartY) > 3) dragMoved = true;
   panX = panStartX + (e.clientX - dragStartX);
   panY = panStartY + (e.clientY - dragStartY);
   applyTransform();
 });
-window.addEventListener('pointerup', () => { dragging = false; worldWrapper.classList.remove('grabbing'); });
+window.addEventListener('pointerup', async () => {
+  dragging = false; worldWrapper.classList.remove('grabbing');
+  if(orgDragState){
+    if(orgDragState.moved) await saveData();
+    orgDragState = null;
+  }
+});
 
 worldWrapper.addEventListener('wheel', (e) => {
   e.preventDefault();
@@ -641,6 +883,130 @@ document.getElementById('zoom-in').onclick = () => zoomBy(0.15);
 document.getElementById('zoom-out').onclick = () => zoomBy(-0.15);
 document.getElementById('reset-view').onclick = () => { scale = 1; panX = 60; panY = 60; applyTransform(); };
 
+// Left-click on empty canvas space -> quick-add menu (organization / position)
+worldWrapper.addEventListener('click', (e) => {
+  if(dragMoved) return;
+  e.stopPropagation();
+  pendingCtxWorldPoint = screenToWorld(e.clientX, e.clientY);
+  showCtxMenu(e.clientX, e.clientY, buildEmptySpaceMenuHtml());
+});
+
+// ---- Context menu ----
+const ctxMenu = document.getElementById('ctx-menu');
+let pendingCtxWorldPoint = {x:0, y:0};
+
+function showCtxMenu(clientX, clientY, itemsHtml){
+  ctxMenu.innerHTML = itemsHtml;
+  ctxMenu.classList.add('open');
+  const menuW = 230, menuH = ctxMenu.offsetHeight || 200;
+  let left = clientX, top = clientY;
+  if(left + menuW > window.innerWidth) left = window.innerWidth - menuW - 12;
+  if(top + menuH > window.innerHeight) top = window.innerHeight - menuH - 12;
+  ctxMenu.style.left = Math.max(8,left) + 'px';
+  ctxMenu.style.top = Math.max(8,top) + 'px';
+}
+function hideCtxMenu(){ ctxMenu.classList.remove('open'); }
+
+document.addEventListener('click', (e) => {
+  if(!ctxMenu.contains(e.target)) hideCtxMenu();
+});
+window.addEventListener('keydown', (e) => { if(e.key === 'Escape') hideCtxMenu(); });
+
+function buildEmptySpaceMenuHtml(){
+  return `
+    <div class="ctx-item" data-action="add-org">+ Добавить организацию</div>
+    <div class="ctx-item" data-action="add-position">+ Добавить должность</div>
+  `;
+}
+function buildCardPlusMenuHtml(nodeId){
+  const n = nodes[nodeId];
+  return `
+    <div class="ctx-item" data-action="add-sub" data-manager-id="${nodeId}" data-org-id="${n.orgId}">+ Добавить должность</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" data-action="delete-position" data-id="${nodeId}">Удалить должность</div>
+  `;
+}
+function buildOrgPlusMenuHtml(orgId){
+  const org = orgs[orgId];
+  let html = '';
+  if(org.parentOrgId){
+    html += `<div class="ctx-item danger" data-action="detach-org" data-org-id="${orgId}">Отвязать от организации</div>`;
+    html += `<div class="ctx-sep"></div>`;
+  }
+  html += `<div class="ctx-label">Присоединить к организации</div>`;
+  const others = Object.values(orgs).filter(o => o.id !== orgId && !isAncestorOrg(orgId, o.id));
+  if(others.length === 0){
+    html += `<div class="ctx-item disabled">Нет доступных организаций</div>`;
+  } else {
+    others.forEach(o => {
+      html += `<div class="ctx-item" data-action="attach-org" data-child-org="${orgId}" data-parent-org="${o.id}">${escapeHtml(o.name)}</div>`;
+    });
+  }
+  return html;
+}
+
+ctxMenu.addEventListener('click', async (e) => {
+  const item = e.target.closest('.ctx-item');
+  if(!item || item.classList.contains('disabled')) return;
+  e.stopPropagation();
+  const action = item.dataset.action;
+  hideCtxMenu();
+  if(action === 'add-org'){
+    openAddOrgModal(pendingCtxWorldPoint);
+  } else if(action === 'add-position'){
+    openAddPositionModal({});
+  } else if(action === 'add-sub'){
+    openAddPositionModal({presetManagerId: item.dataset.managerId, presetOrgId: item.dataset.orgId});
+  } else if(action === 'delete-position'){
+    await deletePositionById(item.dataset.id);
+  } else if(action === 'attach-org'){
+    await attachOrgToParent(item.dataset.childOrg, item.dataset.parentOrg);
+  } else if(action === 'detach-org'){
+    await detachOrg(item.dataset.orgId);
+  }
+});
+
+async function attachOrgToParent(childOrgId, parentOrgId){
+  orgs[childOrgId].parentOrgId = parentOrgId;
+  // Place the attaching organization above its new parent, as requested.
+  const parentFrame = orgFrames[parentOrgId];
+  const childFrame = orgFrames[childOrgId];
+  if(parentFrame && childFrame){
+    orgs[childOrgId].x = parentFrame.x + (parentFrame.w - childFrame.w) / 2;
+    orgs[childOrgId].y = parentFrame.y - childFrame.h - ORG_GAP;
+  }
+  await saveData();
+  render();
+  applyTransform();
+}
+async function detachOrg(orgId){
+  orgs[orgId].parentOrgId = null;
+  await saveData();
+  render();
+  applyTransform();
+}
+
+// ---- Add organization modal ----
+document.getElementById('org-modal-cancel').onclick = () => document.getElementById('org-modal-overlay').classList.remove('open');
+document.getElementById('org-modal-overlay').addEventListener('click', (e) => {
+  if(e.target.id === 'org-modal-overlay') document.getElementById('org-modal-overlay').classList.remove('open');
+});
+function openAddOrgModal(worldPoint){
+  document.getElementById('org-name-input').value = '';
+  pendingCtxWorldPoint = worldPoint || {x:0,y:0};
+  document.getElementById('org-modal-overlay').classList.add('open');
+}
+document.getElementById('org-modal-save').onclick = async () => {
+  const name = document.getElementById('org-name-input').value.trim();
+  if(!name){ alert('Укажите название организации'); return; }
+  const id = uid('o');
+  orgs[id] = {id, name, parentOrgId:null, x: Math.round(pendingCtxWorldPoint.x), y: Math.round(pendingCtxWorldPoint.y)};
+  await saveData();
+  render();
+  applyTransform();
+  document.getElementById('org-modal-overlay').classList.remove('open');
+};
+
 // ---- Add position modal ----
 const overlay = document.getElementById('modal-overlay');
 let pendingAddPhoto = '';
@@ -653,13 +1019,37 @@ function resetAddPhoto(){
   document.getElementById('f-photo').value = '';
 }
 
-document.getElementById('add-btn').onclick = () => {
+function populateOrgSelect(selectEl){
+  selectEl.innerHTML = Object.values(orgs).map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
+}
+function populateManagerSelectFor(selectEl, orgId, excludeId){
+  const opts = ['<option value="">— Нет (верхний уровень)</option>']
+    .concat(Object.values(nodes).filter(n => n.orgId === orgId && n.id !== excludeId)
+      .map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`));
+  selectEl.innerHTML = opts.join('');
+}
+
+function openAddPositionModal(opts){
+  opts = opts || {};
   document.getElementById('f-title').value = '';
   document.getElementById('f-name').value = '';
   document.getElementById('f-dept').value = '';
   resetAddPhoto();
+
+  const orgSelect = document.getElementById('f-org');
+  populateOrgSelect(orgSelect);
+  const defaultOrgId = opts.presetOrgId || Object.keys(orgs)[0];
+  orgSelect.value = defaultOrgId;
+  populateManagerSelectFor(document.getElementById('f-manager'), defaultOrgId, null);
+  document.getElementById('f-manager').value = opts.presetManagerId || '';
+
   overlay.classList.add('open');
-};
+}
+document.getElementById('f-org').addEventListener('change', (e) => {
+  populateManagerSelectFor(document.getElementById('f-manager'), e.target.value, null);
+});
+
+document.getElementById('add-btn').onclick = () => openAddPositionModal({});
 document.getElementById('modal-cancel').onclick = () => overlay.classList.remove('open');
 overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.classList.remove('open'); });
 
@@ -681,23 +1071,17 @@ document.getElementById('f-photo-remove').onclick = () => resetAddPhoto();
 document.getElementById('modal-save').onclick = async () => {
   const title = document.getElementById('f-title').value.trim();
   const name = document.getElementById('f-name').value.trim();
+  const orgId = document.getElementById('f-org').value;
   const managerId = document.getElementById('f-manager').value || null;
   if(!title){ alert('Укажите название должности'); return; }
   const dept = document.getElementById('f-dept').value.trim();
-  const id = uid();
-  nodes[id] = {id, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || '', updatedAt: new Date().toISOString()};
+  const id = uid('p');
+  nodes[id] = {id, orgId, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || '', updatedAt: new Date().toISOString()};
   await saveData();
   render();
   applyTransform();
   overlay.classList.remove('open');
 };
-
-function populateManagerSelects(){
-  const options = ['<option value="">— Нет (верхний уровень)</option>']
-    .concat(Object.values(nodes).map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`));
-  document.getElementById('f-manager').innerHTML = options.join('');
-  document.getElementById('d-manager').innerHTML = options.join('');
-}
 
 // ---- Dossier panel ----
 const dossier = document.getElementById('dossier');
@@ -741,7 +1125,7 @@ function openDossier(id){
   document.getElementById('d-dept').value = n.dept || '';
   document.getElementById('d-email').value = n.email || '';
   document.getElementById('d-phone').value = n.phone || '';
-  populateManagerSelects();
+  populateManagerSelectFor(document.getElementById('d-manager'), n.orgId, id);
   document.getElementById('d-manager').value = n.managerId || '';
   const subs = children(id);
   document.getElementById('d-subs').textContent = subs.length ? subs.map(s=>s.name||s.title).join(', ') : 'Нет подчинённых';
@@ -810,12 +1194,29 @@ document.getElementById('d-save').onclick = async () => {
   openDossier(selectedId);
 };
 
+async function deletePositionById(id){
+  const n = nodes[id];
+  if(!n) return;
+  if(!confirm(`Удалить должность «${n.title}»? Подчинённые перейдут к вышестоящему руководителю.`)) return;
+  const parentId = n.managerId;
+  children(id).forEach(c => { c.managerId = parentId; });
+  delete nodes[id];
+  await saveData();
+  if(selectedId === id){
+    dossier.classList.remove('open');
+    selectedId = null;
+  }
+  render();
+  applyTransform();
+}
+
 function buildStandaloneProfileHtml(n){
   const managerName = n.managerId && nodes[n.managerId] ? (nodes[n.managerId].name || nodes[n.managerId].title) : '—';
   const subs = children(n.id);
   const subsHtml = subs.length
     ? subs.map(s => `<li>${escapeHtml(s.name || '—')} — ${escapeHtml(s.title || '')}</li>`).join('')
     : '<li>Нет подчинённых</li>';
+  const orgName = n.orgId && orgs[n.orgId] ? orgs[n.orgId].name : '';
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -852,6 +1253,7 @@ function buildStandaloneProfileHtml(n){
       </div>
     </div>
     <div class="body">
+      <div class="field"><label>Организация</label><div class="val">${escapeHtml(orgName || '—')}</div></div>
       <div class="field"><label>Отдел / заметка</label><div class="val">${escapeHtml(n.dept || '—')}</div></div>
       <div class="field"><label>Email</label><div class="val">${escapeHtml(n.email || '—')}</div></div>
       <div class="field"><label>Телефон</label><div class="val">${escapeHtml(n.phone || '—')}</div></div>
@@ -880,21 +1282,12 @@ document.getElementById('d-download').onclick = () => {
 
 document.getElementById('d-delete').onclick = async () => {
   if(!selectedId) return;
-  const n = nodes[selectedId];
-  if(!confirm(`Удалить должность «${n.title}»? Подчинённые перейдут к вышестоящему руководителю.`)) return;
-  const parentId = n.managerId;
-  children(selectedId).forEach(c => { c.managerId = parentId; });
-  delete nodes[selectedId];
-  await saveData();
-  dossier.classList.remove('open');
-  selectedId = null;
-  render();
-  applyTransform();
+  await deletePositionById(selectedId);
 };
 
 // ---- Export / Import ----
 document.getElementById('export-btn').onclick = () => {
-  const blob = new Blob([JSON.stringify(nodes, null, 2)], {type:'application/json'});
+  const blob = new Blob([JSON.stringify({orgs, nodes}, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -911,7 +1304,8 @@ document.getElementById('import-file').onchange = async (e) => {
     const text = await file.text();
     const parsed = JSON.parse(text);
     if(typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('bad format');
-    nodes = parsed;
+    const norm = normalizeLoadedData(parsed);
+    orgs = norm.orgs; nodes = norm.nodes;
     await saveData();
     render();
     applyTransform();
