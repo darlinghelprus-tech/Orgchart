@@ -77,14 +77,12 @@
     cursor:grab;
   }
   .org-frame-header:active{cursor:grabbing;}
-  .org-name-input{
+  .org-frame-name{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    max-width:72%; background:transparent; border:none; text-align:center;
+    max-width:72%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; color:var(--ui-text);
-    padding:3px 6px; border-radius:4px; cursor:text;
+    pointer-events:none;
   }
-  .org-name-input:hover{background:var(--ui-hover-bg);}
-  .org-name-input:focus{outline:1px solid var(--accent-cyan); background:var(--ui-hover-bg);}
   .org-plus-btn{
     flex-shrink:0; width:24px; height:24px; border-radius:50%; border:1px solid var(--ui-border);
     background:var(--panel-bg); color:var(--ui-text); cursor:pointer; font-size:15px; line-height:1;
@@ -374,7 +372,7 @@
 <!-- Add organization modal -->
 <div class="overlay" id="org-modal-overlay">
   <div class="modal">
-    <h3>Новая организация</h3>
+    <h3 id="org-modal-title">Новая организация</h3>
     <div class="field">
       <label>Название организации</label>
       <input id="org-name-input" type="text" placeholder='Например: ООО «Ромашка»'>
@@ -711,39 +709,34 @@ function render(){
     frame.dataset.orgId = orgId;
     frame.innerHTML = `
       <div class="org-frame-header">
-        <input class="org-name-input" data-org-id="${orgId}" value="${escapeHtml(f.name)}" spellcheck="false">
+        <span class="org-frame-name">${escapeHtml(f.name)}</span>
         <button class="org-plus-btn" data-org-id="${orgId}" title="Действия организации">+</button>
       </div>`;
     const header = frame.querySelector('.org-frame-header');
-    const nameInput = frame.querySelector('.org-name-input');
 
     frame.querySelector('.org-plus-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       showCtxMenu(e.clientX, e.clientY, buildOrgPlusMenuHtml(orgId));
     });
 
-    // Rename organization
-    nameInput.addEventListener('pointerdown', (e) => e.stopPropagation());
-    nameInput.addEventListener('click', (e) => e.stopPropagation());
-    nameInput.addEventListener('change', async (e) => {
-      const newName = e.target.value.trim() || 'Без названия';
-      orgs[orgId].name = newName;
-      await saveData();
-      render();
-      applyTransform();
-    });
-
     // Drag the whole organization frame by its header
     header.addEventListener('click', (e) => e.stopPropagation());
     header.addEventListener('pointerdown', (e) => {
-      if(e.target.closest('.org-plus-btn') || e.target.closest('.org-name-input')) return;
+      if(e.target.closest('.org-plus-btn')) return;
       e.stopPropagation();
+      header.setPointerCapture(e.pointerId);
       orgDragState = {
         orgId,
         startClientX: e.clientX, startClientY: e.clientY,
         startOrgX: orgs[orgId].x, startOrgY: orgs[orgId].y,
         moved: false
       };
+    });
+    header.addEventListener('pointercancel', async () => {
+      if(orgDragState){
+        if(orgDragState.moved) await saveData();
+        orgDragState = null;
+      }
     });
 
     world.appendChild(frame);
@@ -929,6 +922,8 @@ function buildCardPlusMenuHtml(nodeId){
 function buildOrgPlusMenuHtml(orgId){
   const org = orgs[orgId];
   let html = '';
+  html += `<div class="ctx-item" data-action="rename-org" data-org-id="${orgId}">Переименовать организацию</div>`;
+  html += `<div class="ctx-sep"></div>`;
   if(org.parentOrgId){
     html += `<div class="ctx-item danger" data-action="detach-org" data-org-id="${orgId}">Отвязать от организации</div>`;
     html += `<div class="ctx-sep"></div>`;
@@ -963,17 +958,19 @@ ctxMenu.addEventListener('click', async (e) => {
     await attachOrgToParent(item.dataset.childOrg, item.dataset.parentOrg);
   } else if(action === 'detach-org'){
     await detachOrg(item.dataset.orgId);
+  } else if(action === 'rename-org'){
+    openRenameOrgModal(item.dataset.orgId);
   }
 });
 
 async function attachOrgToParent(childOrgId, parentOrgId){
   orgs[childOrgId].parentOrgId = parentOrgId;
-  // Place the attaching organization above its new parent, as requested.
+  // Place the attaching organization below its new parent, as requested.
   const parentFrame = orgFrames[parentOrgId];
   const childFrame = orgFrames[childOrgId];
   if(parentFrame && childFrame){
     orgs[childOrgId].x = parentFrame.x + (parentFrame.w - childFrame.w) / 2;
-    orgs[childOrgId].y = parentFrame.y - childFrame.h - ORG_GAP;
+    orgs[childOrgId].y = parentFrame.y + parentFrame.h + ORG_GAP;
   }
   await saveData();
   render();
@@ -986,21 +983,40 @@ async function detachOrg(orgId){
   applyTransform();
 }
 
-// ---- Add organization modal ----
+// ---- Add / Rename organization modal ----
+let orgModalMode = 'create'; // 'create' | 'rename'
+let orgModalTargetId = null;
+
 document.getElementById('org-modal-cancel').onclick = () => document.getElementById('org-modal-overlay').classList.remove('open');
 document.getElementById('org-modal-overlay').addEventListener('click', (e) => {
   if(e.target.id === 'org-modal-overlay') document.getElementById('org-modal-overlay').classList.remove('open');
 });
 function openAddOrgModal(worldPoint){
+  orgModalMode = 'create';
+  orgModalTargetId = null;
+  document.getElementById('org-modal-title').textContent = 'Новая организация';
+  document.getElementById('org-modal-save').textContent = 'Создать';
   document.getElementById('org-name-input').value = '';
   pendingCtxWorldPoint = worldPoint || {x:0,y:0};
+  document.getElementById('org-modal-overlay').classList.add('open');
+}
+function openRenameOrgModal(orgId){
+  orgModalMode = 'rename';
+  orgModalTargetId = orgId;
+  document.getElementById('org-modal-title').textContent = 'Переименовать организацию';
+  document.getElementById('org-modal-save').textContent = 'Сохранить';
+  document.getElementById('org-name-input').value = orgs[orgId].name || '';
   document.getElementById('org-modal-overlay').classList.add('open');
 }
 document.getElementById('org-modal-save').onclick = async () => {
   const name = document.getElementById('org-name-input').value.trim();
   if(!name){ alert('Укажите название организации'); return; }
-  const id = uid('o');
-  orgs[id] = {id, name, parentOrgId:null, x: Math.round(pendingCtxWorldPoint.x), y: Math.round(pendingCtxWorldPoint.y)};
+  if(orgModalMode === 'rename' && orgModalTargetId){
+    orgs[orgModalTargetId].name = name;
+  } else {
+    const id = uid('o');
+    orgs[id] = {id, name, parentOrgId:null, x: Math.round(pendingCtxWorldPoint.x), y: Math.round(pendingCtxWorldPoint.y)};
+  }
   await saveData();
   render();
   applyTransform();
