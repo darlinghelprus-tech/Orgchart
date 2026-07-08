@@ -19,6 +19,7 @@
     --lvl-1: #D9A441;
     --lvl-2: #A672C2;
     --lvl-3: #D96A6A;
+    --lvl-neutral: #8A8A82;
     --panel-bg: rgba(14,26,40,0.92);
     --danger: #D96A6A;
     --ui-text: #EAF3F5;
@@ -64,6 +65,32 @@
   svg#connectors{position:absolute; top:0; left:0; overflow:visible; pointer-events:none;}
   .connector-path{fill:none; stroke:var(--accent-cyan-dim); stroke-width:2;}
   .org-connector-path{fill:none; stroke:var(--accent-cyan); stroke-width:3; stroke-dasharray:7 5;}
+  .sub-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:2.5; stroke-dasharray:5 4;}
+  .sub-head-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:1.5; stroke-dasharray:2 4; opacity:0.75;}
+
+  /* Subdivision frame: small box nested inside an organization, linked to its head by a line */
+  .sub-frame{
+    position:absolute; border:2px dotted var(--lvl-2); border-radius:9px;
+    background:rgba(255,255,255,0.02);
+  }
+  .sub-frame-header{
+    position:relative; height:100%;
+    display:flex; align-items:center; justify-content:flex-end;
+    padding:0 10px; cursor:grab;
+  }
+  .sub-frame-header:active{cursor:grabbing;}
+  .sub-frame-name{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    max-width:74%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; color:var(--ui-text);
+    pointer-events:none;
+  }
+  .sub-plus-btn{
+    flex-shrink:0; width:20px; height:20px; border-radius:50%; border:1px solid var(--ui-border);
+    background:var(--panel-bg); color:var(--ui-text); cursor:pointer; font-size:13px; line-height:1;
+    display:flex; align-items:center; justify-content:center; position:relative; z-index:2;
+  }
+  .sub-plus-btn:hover{background:var(--ui-hover-bg);}
 
   /* Organization frame */
   .org-frame{
@@ -384,6 +411,29 @@
   </div>
 </div>
 
+<!-- Add/Rename subdivision modal -->
+<div class="overlay" id="sub-modal-overlay">
+  <div class="modal">
+    <h3 id="sub-modal-title">Новое подразделение</h3>
+    <div class="field" id="sub-org-field">
+      <label>Организация</label>
+      <select id="sub-org-select"></select>
+    </div>
+    <div class="field">
+      <label>Название подразделения</label>
+      <input id="sub-name-input" type="text" placeholder="Например: Отдел продаж">
+    </div>
+    <div class="field" id="sub-head-field">
+      <label>Глава подразделения</label>
+      <select id="sub-head-select"></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="sub-modal-cancel">Отмена</button>
+      <button class="btn-dark" id="sub-modal-save">Создать</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add/Edit position modal -->
 <div class="overlay" id="modal-overlay">
   <div class="modal">
@@ -515,11 +565,23 @@
 
 <script>
 const LEVEL_COLORS = ['var(--lvl-0)','var(--lvl-1)','var(--lvl-2)','var(--lvl-3)'];
+
+// Deterministic color per department name, so the same department always gets the
+// same accent color across the whole chart, instead of colors depending on hierarchy depth.
+function deptColor(dept){
+  const d = (dept || '').trim();
+  if(!d) return 'var(--lvl-neutral)';
+  let hash = 0;
+  const s = d.toLowerCase();
+  for(let i = 0; i < s.length; i++){ hash = (hash*31 + s.charCodeAt(i)) >>> 0; }
+  return LEVEL_COLORS[hash % LEVEL_COLORS.length];
+}
 const STORAGE_KEY = 'orgchart-tree-v2';
 const LEGACY_STORAGE_KEY = 'orgchart-tree-v1';
 
 let orgs = {};         // orgId -> {id, name, parentOrgId, x, y}
 let nodes = {};        // id -> {id, orgId, title, name, managerId, dept, email, phone, photo, updatedAt}
+let subdivisions = {}; // subId -> {id, orgId, name, headPositionId, parentSubId, x, y}
 let selectedId = null;
 let scale = 1, panX = 60, panY = 60;
 
@@ -568,21 +630,22 @@ function defaultData(){
       [cto]: {id:cto, orgId, title:'Технический директор', name:'Козлов Дмитрий', managerId:ceo, dept:'Технологии', email:'', phone:''},
       [cfo]: {id:cfo, orgId, title:'Финансовый директор', name:'Петрова Елена', managerId:ceo, dept:'Финансы', email:'', phone:''},
       [dev]: {id:dev, orgId, title:'Ведущий разработчик', name:'Николаев Артём', managerId:cto, dept:'Разработка', email:'', phone:''},
-    }
+    },
+    subdivisions: {}
   };
 }
 
-// Accepts either the current {orgs,nodes} shape or a legacy flat positions map,
-// and always returns a normalized {orgs,nodes} pair.
+// Accepts either the current {orgs,nodes,subdivisions} shape or a legacy flat positions map,
+// and always returns a normalized {orgs,nodes,subdivisions} triple.
 function normalizeLoadedData(parsed){
   if(parsed && typeof parsed === 'object' && parsed.orgs && parsed.nodes){
-    return {orgs: parsed.orgs, nodes: parsed.nodes};
+    return {orgs: parsed.orgs, nodes: parsed.nodes, subdivisions: parsed.subdivisions || {}};
   }
   const orgId = uid('o');
   const newOrgs = {[orgId]: {id:orgId, name:'ООО «Обнал»', parentOrgId:null, x:0, y:0}};
   const newNodes = parsed && typeof parsed === 'object' ? parsed : {};
   Object.values(newNodes).forEach(n => { if(!n.orgId) n.orgId = orgId; });
-  return {orgs:newOrgs, nodes:newNodes};
+  return {orgs:newOrgs, nodes:newNodes, subdivisions:{}};
 }
 
 async function loadData(){
@@ -591,7 +654,7 @@ async function loadData(){
     if(v){
       const parsed = JSON.parse(v);
       const norm = normalizeLoadedData(parsed);
-      orgs = norm.orgs; nodes = norm.nodes;
+      orgs = norm.orgs; nodes = norm.nodes; subdivisions = norm.subdivisions;
       return;
     }
     // Migrate data saved by the previous single-organization version of this app.
@@ -599,19 +662,19 @@ async function loadData(){
     if(legacy){
       const parsedLegacy = JSON.parse(legacy);
       const norm = normalizeLoadedData(parsedLegacy);
-      orgs = norm.orgs; nodes = norm.nodes;
+      orgs = norm.orgs; nodes = norm.nodes; subdivisions = norm.subdivisions;
       await saveData();
       return;
     }
   }catch(e){ /* corrupted or empty, fall through to defaults */ }
   const d = defaultData();
-  orgs = d.orgs; nodes = d.nodes;
+  orgs = d.orgs; nodes = d.nodes; subdivisions = d.subdivisions;
   await saveData();
 }
 
 async function saveData(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({orgs, nodes}));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({orgs, nodes, subdivisions}));
   }catch(e){ console.error('Ошибка сохранения', e); alert('Не удалось сохранить данные в этом браузере.'); }
 }
 
@@ -631,12 +694,24 @@ function isAncestorOrg(ancestorId, orgId){
   }
   return false;
 }
+function isAncestorSub(ancestorId, subId){
+  let cur = subdivisions[subId];
+  let guard = 0;
+  while(cur && cur.parentSubId && guard < 200){
+    if(cur.parentSubId === ancestorId) return true;
+    cur = subdivisions[cur.parentSubId];
+    guard++;
+  }
+  return false;
+}
 
 // ---- Layout (per-organization tree layout, frames placed on one shared canvas) ----
 const SPACING_X = 230, SPACING_Y = 150;
 const ORG_HEADER_H = 44, ORG_PAD = 26, ORG_GAP = 90, CARD_W = 196, CARD_H = 78;
+const SUB_W = 190, SUB_H = 50;
 let layoutPos = {};   // positionId -> {x,y,depth} (absolute canvas coords)
 let orgFrames = {};   // orgId -> {x,y,w,h,name}
+let subFrames = {};   // subId -> {x,y,w,h,name}
 
 function computeLayout(){
   layoutPos = {};
@@ -688,12 +763,27 @@ function computeLayout(){
       };
     });
   });
+
+  // Subdivisions: small frames, default-placed near their head position's card
+  // if the person hasn't dragged them elsewhere yet.
+  subFrames = {};
+  Object.keys(subdivisions).forEach(subId => {
+    const sub = subdivisions[subId];
+    let sx = sub.x, sy = sub.y;
+    if(sx === undefined || sx === null || sy === undefined || sy === null){
+      const headPos = layoutPos[sub.headPositionId];
+      if(headPos){ sx = headPos.x + CARD_W + 50; sy = headPos.y; }
+      else { sx = 0; sy = 0; }
+      sub.x = sx; sub.y = sy;
+    }
+    subFrames[subId] = {x: sx, y: sy, w: SUB_W, h: SUB_H, name: sub.name};
+  });
 }
 
 // ---- Rendering ----
 function render(){
   computeLayout();
-  world.querySelectorAll('.node-card, .org-frame').forEach(el => el.remove());
+  world.querySelectorAll('.node-card, .org-frame, .sub-frame').forEach(el => el.remove());
   svg.innerHTML = '';
 
   let maxX = 0, maxY = 0;
@@ -759,6 +849,76 @@ function render(){
     }
   });
 
+  // Subdivision frames
+  Object.keys(subFrames).forEach(subId => {
+    const f = subFrames[subId];
+    maxX = Math.max(maxX, f.x + f.w); maxY = Math.max(maxY, f.y + f.h);
+    const frame = document.createElement('div');
+    frame.className = 'sub-frame';
+    frame.style.left = f.x + 'px'; frame.style.top = f.y + 'px';
+    frame.style.width = f.w + 'px'; frame.style.height = f.h + 'px';
+    frame.dataset.subId = subId;
+    frame.innerHTML = `
+      <div class="sub-frame-header">
+        <span class="sub-frame-name">${escapeHtml(f.name)}</span>
+        <button class="sub-plus-btn" data-sub-id="${subId}" title="Действия подразделения">+</button>
+      </div>`;
+    const header = frame.querySelector('.sub-frame-header');
+
+    frame.querySelector('.sub-plus-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showCtxMenu(e.clientX, e.clientY, buildSubPlusMenuHtml(subId));
+    });
+
+    header.addEventListener('click', (e) => e.stopPropagation());
+    header.addEventListener('pointerdown', (e) => {
+      if(e.target.closest('.sub-plus-btn')) return;
+      e.stopPropagation();
+      header.setPointerCapture(e.pointerId);
+      subDragState = {
+        subId,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startSubX: subdivisions[subId].x, startSubY: subdivisions[subId].y,
+        moved: false
+      };
+    });
+    header.addEventListener('pointercancel', async () => {
+      if(subDragState){
+        if(subDragState.moved) await saveData();
+        subDragState = null;
+      }
+    });
+
+    world.appendChild(frame);
+  });
+
+  // Subdivision connectors: to its head position (dotted), and to its parent subdivision if nested
+  Object.values(subdivisions).forEach(sub => {
+    const f = subFrames[sub.id];
+    if(!f) return;
+    const headPos = layoutPos[sub.headPositionId];
+    if(headPos){
+      const x1 = f.x + f.w/2, y1 = f.y + f.h/2;
+      const x2 = headPos.x + 98, y2 = headPos.y + 39;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+      path.setAttribute('class','sub-head-connector-path');
+      svg.appendChild(path);
+    }
+    if(sub.parentSubId && subFrames[sub.parentSubId]){
+      const p = subFrames[sub.parentSubId];
+      const a = (p.y <= f.y) ? p : f;
+      const b = (p.y <= f.y) ? f : p;
+      const x1 = a.x + a.w/2, y1 = a.y + a.h;
+      const x2 = b.x + b.w/2, y2 = b.y;
+      const midY = (y1 + y2) / 2;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
+      path.setAttribute('class','sub-connector-path');
+      svg.appendChild(path);
+    }
+  });
+
   // Position cards + connectors
   Object.values(nodes).forEach(n => {
     const pos = layoutPos[n.id];
@@ -781,7 +941,7 @@ function render(){
     card.style.left = pos.x + 'px';
     card.style.top = pos.y + 'px';
     card.dataset.id = n.id;
-    const color = LEVEL_COLORS[pos.depth % LEVEL_COLORS.length];
+    const color = deptColor(n.dept);
     card.innerHTML = `
       <button class="card-plus" data-id="${n.id}" title="Действия">+</button>
       <div class="tab" style="background:${color}"></div>
@@ -821,6 +981,7 @@ function screenToWorld(clientX, clientY){
 // ---- Pan & zoom ----
 let dragging = false, dragMoved = false, dragStartX=0, dragStartY=0, panStartX=0, panStartY=0;
 let orgDragState = null; // {orgId, startClientX, startClientY, startOrgX, startOrgY, moved}
+let subDragState = null; // {subId, startClientX, startClientY, startSubX, startSubY, moved}
 
 worldWrapper.addEventListener('pointerdown', (e) => {
   dragging = true; dragMoved = false;
@@ -839,6 +1000,16 @@ window.addEventListener('pointermove', (e) => {
     applyTransform();
     return;
   }
+  if(subDragState){
+    const dx = (e.clientX - subDragState.startClientX) / scale;
+    const dy = (e.clientY - subDragState.startClientY) / scale;
+    if(Math.abs(dx) > 2 || Math.abs(dy) > 2) subDragState.moved = true;
+    subdivisions[subDragState.subId].x = subDragState.startSubX + dx;
+    subdivisions[subDragState.subId].y = subDragState.startSubY + dy;
+    render();
+    applyTransform();
+    return;
+  }
   if(!dragging) return;
   if(Math.abs(e.clientX-dragStartX) > 3 || Math.abs(e.clientY-dragStartY) > 3) dragMoved = true;
   panX = panStartX + (e.clientX - dragStartX);
@@ -850,6 +1021,10 @@ window.addEventListener('pointerup', async () => {
   if(orgDragState){
     if(orgDragState.moved) await saveData();
     orgDragState = null;
+  }
+  if(subDragState){
+    if(subDragState.moved) await saveData();
+    subDragState = null;
   }
 });
 
@@ -908,6 +1083,7 @@ window.addEventListener('keydown', (e) => { if(e.key === 'Escape') hideCtxMenu()
 function buildEmptySpaceMenuHtml(){
   return `
     <div class="ctx-item" data-action="add-org">+ Добавить организацию</div>
+    <div class="ctx-item" data-action="add-subdivision">+ Добавить подразделение</div>
     <div class="ctx-item" data-action="add-position">+ Добавить должность</div>
   `;
 }
@@ -923,6 +1099,7 @@ function buildOrgPlusMenuHtml(orgId){
   const org = orgs[orgId];
   let html = '';
   html += `<div class="ctx-item" data-action="rename-org" data-org-id="${orgId}">Переименовать организацию</div>`;
+  html += `<div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${orgId}">+ Добавить подразделение</div>`;
   html += `<div class="ctx-sep"></div>`;
   if(org.parentOrgId){
     html += `<div class="ctx-item danger" data-action="detach-org" data-org-id="${orgId}">Отвязать от организации</div>`;
@@ -937,6 +1114,30 @@ function buildOrgPlusMenuHtml(orgId){
       html += `<div class="ctx-item" data-action="attach-org" data-child-org="${orgId}" data-parent-org="${o.id}">${escapeHtml(o.name)}</div>`;
     });
   }
+  return html;
+}
+
+function buildSubPlusMenuHtml(subId){
+  const sub = subdivisions[subId];
+  let html = '';
+  html += `<div class="ctx-item" data-action="rename-subdivision" data-sub-id="${subId}">Переименовать подразделение</div>`;
+  html += `<div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${sub.orgId}" data-preset-parent-sub-id="${subId}">+ Добавить вложенное подразделение</div>`;
+  html += `<div class="ctx-sep"></div>`;
+  if(sub.parentSubId){
+    html += `<div class="ctx-item danger" data-action="detach-subdivision" data-sub-id="${subId}">Открепить от подразделения</div>`;
+    html += `<div class="ctx-sep"></div>`;
+  }
+  html += `<div class="ctx-label">Прикрепить к подразделению</div>`;
+  const others = Object.values(subdivisions).filter(s => s.id !== subId && s.orgId === sub.orgId && !isAncestorSub(subId, s.id));
+  if(others.length === 0){
+    html += `<div class="ctx-item disabled">Нет доступных подразделений</div>`;
+  } else {
+    others.forEach(s => {
+      html += `<div class="ctx-item" data-action="attach-subdivision" data-child-sub="${subId}" data-parent-sub="${s.id}">${escapeHtml(s.name)}</div>`;
+    });
+  }
+  html += `<div class="ctx-sep"></div>`;
+  html += `<div class="ctx-item danger" data-action="delete-subdivision" data-sub-id="${subId}">Удалить подразделение</div>`;
   return html;
 }
 
@@ -960,6 +1161,20 @@ ctxMenu.addEventListener('click', async (e) => {
     await detachOrg(item.dataset.orgId);
   } else if(action === 'rename-org'){
     openRenameOrgModal(item.dataset.orgId);
+  } else if(action === 'add-subdivision'){
+    openAddSubdivisionModal({
+      presetOrgId: item.dataset.presetOrgId,
+      presetParentSubId: item.dataset.presetParentSubId || null,
+      worldPoint: pendingCtxWorldPoint
+    });
+  } else if(action === 'rename-subdivision'){
+    openRenameSubdivisionModal(item.dataset.subId);
+  } else if(action === 'attach-subdivision'){
+    await attachSubToParent(item.dataset.childSub, item.dataset.parentSub);
+  } else if(action === 'detach-subdivision'){
+    await detachSub(item.dataset.subId);
+  } else if(action === 'delete-subdivision'){
+    await deleteSubdivisionById(item.dataset.subId);
   }
 });
 
@@ -978,6 +1193,35 @@ async function attachOrgToParent(childOrgId, parentOrgId){
 }
 async function detachOrg(orgId){
   orgs[orgId].parentOrgId = null;
+  await saveData();
+  render();
+  applyTransform();
+}
+
+async function attachSubToParent(childSubId, parentSubId){
+  subdivisions[childSubId].parentSubId = parentSubId;
+  const parentFrame = subFrames[parentSubId];
+  const childFrame = subFrames[childSubId];
+  if(parentFrame && childFrame){
+    subdivisions[childSubId].x = parentFrame.x + (parentFrame.w - childFrame.w) / 2;
+    subdivisions[childSubId].y = parentFrame.y + parentFrame.h + 40;
+  }
+  await saveData();
+  render();
+  applyTransform();
+}
+async function detachSub(subId){
+  subdivisions[subId].parentSubId = null;
+  await saveData();
+  render();
+  applyTransform();
+}
+async function deleteSubdivisionById(subId){
+  const sub = subdivisions[subId];
+  if(!sub) return;
+  if(!confirm(`Удалить подразделение «${sub.name}»? Вложенные подразделения станут верхнеуровневыми.`)) return;
+  Object.values(subdivisions).forEach(s => { if(s.parentSubId === subId) s.parentSubId = sub.parentSubId; });
+  delete subdivisions[subId];
   await saveData();
   render();
   applyTransform();
@@ -1021,6 +1265,84 @@ document.getElementById('org-modal-save').onclick = async () => {
   render();
   applyTransform();
   document.getElementById('org-modal-overlay').classList.remove('open');
+};
+
+// ---- Add / Rename subdivision modal ----
+let subModalMode = 'create'; // 'create' | 'rename'
+let subModalTargetId = null;
+let subModalParentSubId = null;
+let subModalWorldPoint = null;
+
+document.getElementById('sub-modal-cancel').onclick = () => document.getElementById('sub-modal-overlay').classList.remove('open');
+document.getElementById('sub-modal-overlay').addEventListener('click', (e) => {
+  if(e.target.id === 'sub-modal-overlay') document.getElementById('sub-modal-overlay').classList.remove('open');
+});
+
+function populateSubHeadSelect(orgId){
+  const select = document.getElementById('sub-head-select');
+  const positions = Object.values(nodes).filter(n => n.orgId === orgId);
+  if(positions.length === 0){
+    select.innerHTML = `<option value="">Нет должностей в этой организации</option>`;
+  } else {
+    select.innerHTML = positions.map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`).join('');
+  }
+}
+
+function openAddSubdivisionModal(opts){
+  opts = opts || {};
+  subModalMode = 'create';
+  subModalTargetId = null;
+  subModalParentSubId = opts.presetParentSubId || null;
+  subModalWorldPoint = opts.worldPoint || null;
+
+  document.getElementById('sub-modal-title').textContent = subModalParentSubId ? 'Новое вложенное подразделение' : 'Новое подразделение';
+  document.getElementById('sub-modal-save').textContent = 'Создать';
+  document.getElementById('sub-org-field').style.display = '';
+  document.getElementById('sub-head-field').style.display = '';
+  document.getElementById('sub-name-input').value = '';
+
+  const orgSelect = document.getElementById('sub-org-select');
+  populateOrgSelect(orgSelect);
+  const defaultOrgId = opts.presetOrgId || Object.keys(orgs)[0];
+  orgSelect.value = defaultOrgId;
+  orgSelect.disabled = !!opts.presetParentSubId; // nested subdivisions must stay in the parent's organization
+  populateSubHeadSelect(defaultOrgId);
+
+  document.getElementById('sub-modal-overlay').classList.add('open');
+}
+document.getElementById('sub-org-select').addEventListener('change', (e) => {
+  populateSubHeadSelect(e.target.value);
+});
+
+function openRenameSubdivisionModal(subId){
+  subModalMode = 'rename';
+  subModalTargetId = subId;
+  document.getElementById('sub-modal-title').textContent = 'Переименовать подразделение';
+  document.getElementById('sub-modal-save').textContent = 'Сохранить';
+  document.getElementById('sub-org-field').style.display = 'none';
+  document.getElementById('sub-head-field').style.display = 'none';
+  document.getElementById('sub-name-input').value = subdivisions[subId].name || '';
+  document.getElementById('sub-modal-overlay').classList.add('open');
+}
+
+document.getElementById('sub-modal-save').onclick = async () => {
+  const name = document.getElementById('sub-name-input').value.trim();
+  if(!name){ alert('Укажите название подразделения'); return; }
+  if(subModalMode === 'rename' && subModalTargetId){
+    subdivisions[subModalTargetId].name = name;
+  } else {
+    const orgId = document.getElementById('sub-org-select').value;
+    const headPositionId = document.getElementById('sub-head-select').value;
+    if(!orgId || !headPositionId){ alert('В этой организации пока нет должностей — сначала добавьте хотя бы одну.'); return; }
+    const id = uid('s');
+    const sub = {id, orgId, name, headPositionId, parentSubId: subModalParentSubId, x: null, y: null};
+    if(subModalWorldPoint){ sub.x = Math.round(subModalWorldPoint.x); sub.y = Math.round(subModalWorldPoint.y); }
+    subdivisions[id] = sub;
+  }
+  await saveData();
+  render();
+  applyTransform();
+  document.getElementById('sub-modal-overlay').classList.remove('open');
 };
 
 // ---- Add position modal ----
@@ -1133,8 +1455,7 @@ function openDossier(id){
   document.getElementById('d-name').value = n.name || '';
   document.getElementById('d-id-code').textContent = n.id.slice(2,7).toUpperCase();
   document.getElementById('d-updated-at').textContent = formatUpdatedAt(n.updatedAt);
-  const depth = (layoutPos[id] && layoutPos[id].depth) || 0;
-  document.getElementById('dossier-tab').style.background = LEVEL_COLORS[depth % LEVEL_COLORS.length];
+  document.getElementById('dossier-tab').style.background = deptColor(n.dept);
   document.getElementById('d-link').value = positionUrl(id);
   document.getElementById('d-goto-link').href = positionUrl(id);
   refreshDossierPhoto(n);
@@ -1162,16 +1483,44 @@ document.getElementById('dossier-close').onclick = () => {
 const COPY_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
 const CHECK_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
 
+// Copies text to the clipboard. Prefers the modern Clipboard API (needs a secure
+// context: https:// or a real server); falls back to the legacy execCommand approach,
+// which still works when the file is opened directly (file://) with no server at all.
+async function copyTextToClipboard(text){
+  if(navigator.clipboard && window.isSecureContext){
+    try{
+      await navigator.clipboard.writeText(text);
+      return true;
+    }catch(e){ /* fall through to legacy method */ }
+  }
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  }catch(e){
+    return false;
+  }
+}
+
 document.getElementById('d-copy-link').onclick = async () => {
   const input = document.getElementById('d-link');
-  input.select();
   const btn = document.getElementById('d-copy-link');
-  try{
-    await navigator.clipboard.writeText(input.value);
+  const ok = await copyTextToClipboard(input.value);
+  if(ok){
     btn.innerHTML = CHECK_ICON;
     btn.title = 'Скопировано';
     setTimeout(() => { btn.innerHTML = COPY_ICON; btn.title = 'Копировать ссылку'; }, 1200);
-  }catch(e){ /* clipboard may be blocked in sandboxed preview */ }
+  } else {
+    input.select();
+    alert('Не удалось скопировать автоматически. Ссылка выделена — скопируйте её вручную (Ctrl+C / Cmd+C).');
+  }
 };
 
 document.getElementById('d-photo-box').onclick = () => document.getElementById('d-photo').click();
@@ -1216,6 +1565,8 @@ async function deletePositionById(id){
   if(!confirm(`Удалить должность «${n.title}»? Подчинённые перейдут к вышестоящему руководителю.`)) return;
   const parentId = n.managerId;
   children(id).forEach(c => { c.managerId = parentId; });
+  // If this position headed any subdivision, hand that subdivision to its manager instead.
+  Object.values(subdivisions).forEach(s => { if(s.headPositionId === id) s.headPositionId = parentId; });
   delete nodes[id];
   await saveData();
   if(selectedId === id){
@@ -1303,7 +1654,7 @@ document.getElementById('d-delete').onclick = async () => {
 
 // ---- Export / Import ----
 document.getElementById('export-btn').onclick = () => {
-  const blob = new Blob([JSON.stringify({orgs, nodes}, null, 2)], {type:'application/json'});
+  const blob = new Blob([JSON.stringify({orgs, nodes, subdivisions}, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1321,7 +1672,7 @@ document.getElementById('import-file').onchange = async (e) => {
     const parsed = JSON.parse(text);
     if(typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('bad format');
     const norm = normalizeLoadedData(parsed);
-    orgs = norm.orgs; nodes = norm.nodes;
+    orgs = norm.orgs; nodes = norm.nodes; subdivisions = norm.subdivisions;
     await saveData();
     render();
     applyTransform();
