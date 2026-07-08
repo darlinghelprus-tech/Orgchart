@@ -469,8 +469,8 @@
       <select id="f-manager"></select>
     </div>
     <div class="field">
-      <label>Отдел / заметка</label>
-      <textarea id="f-dept" placeholder="Например: Отдел продаж, направление B2B"></textarea>
+      <label>Подразделение</label>
+      <select id="f-sub"></select>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" id="modal-cancel">Отмена</button>
@@ -506,9 +506,9 @@
           <div class="fcap">согласно штатному расписанию</div>
         </div>
         <div class="fnum">
-          <div class="fnum-title"><span class="fnum-n">3.</span> Отдел / подразделение</div>
-          <textarea id="d-dept" placeholder="Отдел продаж, направление B2B"></textarea>
-          <div class="fcap">подразделение, направление</div>
+          <div class="fnum-title"><span class="fnum-n">3.</span> Подразделение</div>
+          <select id="d-sub"></select>
+          <div class="fcap">можно оставить без подразделения</div>
         </div>
         <div class="fnum">
           <div class="fnum-title"><span class="fnum-n">4.</span> Email</div>
@@ -575,6 +575,15 @@ function deptColor(dept){
   const s = d.toLowerCase();
   for(let i = 0; i < s.length; i++){ hash = (hash*31 + s.charCodeAt(i)) >>> 0; }
   return LEVEL_COLORS[hash % LEVEL_COLORS.length];
+}
+// A position's "department" label is now driven by its linked subdivision (if any);
+// falls back to old free-text dept for positions saved before subdivisions existed.
+function positionDeptLabel(n){
+  if(n.subId && subdivisions[n.subId]) return subdivisions[n.subId].name;
+  return n.dept || '';
+}
+function deptColorFor(n){
+  return deptColor(positionDeptLabel(n));
 }
 const STORAGE_KEY = 'orgchart-tree-v2';
 const LEGACY_STORAGE_KEY = 'orgchart-tree-v1';
@@ -941,14 +950,14 @@ function render(){
     card.style.left = pos.x + 'px';
     card.style.top = pos.y + 'px';
     card.dataset.id = n.id;
-    const color = deptColor(n.dept);
+    const color = deptColorFor(n);
     card.innerHTML = `
       <button class="card-plus" data-id="${n.id}" title="Действия">+</button>
       <div class="tab" style="background:${color}"></div>
       <div class="body">
         <div class="title">${escapeHtml(n.title || 'Без названия')}</div>
         <div class="name">${escapeHtml(n.name || '—')}</div>
-        <div class="footer"><span>${n.dept ? escapeHtml(n.dept) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
+        <div class="footer"><span>${positionDeptLabel(n) ? escapeHtml(positionDeptLabel(n)) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
     card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
     card.querySelector('.card-plus').addEventListener('click', (e) => {
@@ -1121,6 +1130,7 @@ function buildSubPlusMenuHtml(subId){
   const sub = subdivisions[subId];
   let html = '';
   html += `<div class="ctx-item" data-action="rename-subdivision" data-sub-id="${subId}">Переименовать подразделение</div>`;
+  html += `<div class="ctx-item" data-action="add-position-in-sub" data-preset-org-id="${sub.orgId}" data-preset-sub-id="${subId}">+ Добавить должность</div>`;
   html += `<div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${sub.orgId}" data-preset-parent-sub-id="${subId}">+ Добавить вложенное подразделение</div>`;
   html += `<div class="ctx-sep"></div>`;
   if(sub.parentSubId){
@@ -1153,6 +1163,8 @@ ctxMenu.addEventListener('click', async (e) => {
     openAddPositionModal({});
   } else if(action === 'add-sub'){
     openAddPositionModal({presetManagerId: item.dataset.managerId, presetOrgId: item.dataset.orgId});
+  } else if(action === 'add-position-in-sub'){
+    openAddPositionModal({presetOrgId: item.dataset.presetOrgId, presetSubId: item.dataset.presetSubId});
   } else if(action === 'delete-position'){
     await deletePositionById(item.dataset.id);
   } else if(action === 'attach-org'){
@@ -1219,8 +1231,9 @@ async function detachSub(subId){
 async function deleteSubdivisionById(subId){
   const sub = subdivisions[subId];
   if(!sub) return;
-  if(!confirm(`Удалить подразделение «${sub.name}»? Вложенные подразделения станут верхнеуровневыми.`)) return;
+  if(!confirm(`Удалить подразделение «${sub.name}»? Вложенные подразделения станут верхнеуровневыми, а привязанные должности останутся без подразделения.`)) return;
   Object.values(subdivisions).forEach(s => { if(s.parentSubId === subId) s.parentSubId = sub.parentSubId; });
+  Object.values(nodes).forEach(n => { if(n.subId === subId) n.subId = null; });
   delete subdivisions[subId];
   await saveData();
   render();
@@ -1366,12 +1379,18 @@ function populateManagerSelectFor(selectEl, orgId, excludeId){
       .map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`));
   selectEl.innerHTML = opts.join('');
 }
+function populateSubdivisionSelectFor(selectEl, orgId, currentSubId){
+  const subs = Object.values(subdivisions).filter(s => s.orgId === orgId);
+  const opts = ['<option value="">— Без подразделения —</option>']
+    .concat(subs.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`));
+  selectEl.innerHTML = opts.join('');
+  selectEl.value = currentSubId || '';
+}
 
 function openAddPositionModal(opts){
   opts = opts || {};
   document.getElementById('f-title').value = '';
   document.getElementById('f-name').value = '';
-  document.getElementById('f-dept').value = '';
   resetAddPhoto();
 
   const orgSelect = document.getElementById('f-org');
@@ -1380,11 +1399,13 @@ function openAddPositionModal(opts){
   orgSelect.value = defaultOrgId;
   populateManagerSelectFor(document.getElementById('f-manager'), defaultOrgId, null);
   document.getElementById('f-manager').value = opts.presetManagerId || '';
+  populateSubdivisionSelectFor(document.getElementById('f-sub'), defaultOrgId, opts.presetSubId || null);
 
   overlay.classList.add('open');
 }
 document.getElementById('f-org').addEventListener('change', (e) => {
   populateManagerSelectFor(document.getElementById('f-manager'), e.target.value, null);
+  populateSubdivisionSelectFor(document.getElementById('f-sub'), e.target.value, null);
 });
 
 document.getElementById('add-btn').onclick = () => openAddPositionModal({});
@@ -1412,9 +1433,9 @@ document.getElementById('modal-save').onclick = async () => {
   const orgId = document.getElementById('f-org').value;
   const managerId = document.getElementById('f-manager').value || null;
   if(!title){ alert('Укажите название должности'); return; }
-  const dept = document.getElementById('f-dept').value.trim();
+  const subId = document.getElementById('f-sub').value || null;
   const id = uid('p');
-  nodes[id] = {id, orgId, title, name, managerId, dept, email:'', phone:'', photo: pendingAddPhoto || '', updatedAt: new Date().toISOString()};
+  nodes[id] = {id, orgId, title, name, managerId, subId, dept:'', email:'', phone:'', photo: pendingAddPhoto || '', updatedAt: new Date().toISOString()};
   await saveData();
   render();
   applyTransform();
@@ -1455,11 +1476,11 @@ function openDossier(id){
   document.getElementById('d-name').value = n.name || '';
   document.getElementById('d-id-code').textContent = n.id.slice(2,7).toUpperCase();
   document.getElementById('d-updated-at').textContent = formatUpdatedAt(n.updatedAt);
-  document.getElementById('dossier-tab').style.background = deptColor(n.dept);
+  document.getElementById('dossier-tab').style.background = deptColorFor(n);
   document.getElementById('d-link').value = positionUrl(id);
   document.getElementById('d-goto-link').href = positionUrl(id);
   refreshDossierPhoto(n);
-  document.getElementById('d-dept').value = n.dept || '';
+  populateSubdivisionSelectFor(document.getElementById('d-sub'), n.orgId, n.subId || null);
   document.getElementById('d-email').value = n.email || '';
   document.getElementById('d-phone').value = n.phone || '';
   populateManagerSelectFor(document.getElementById('d-manager'), n.orgId, id);
@@ -1547,7 +1568,7 @@ document.getElementById('d-save').onclick = async () => {
   if(newManager === selectedId){ alert('Должность не может быть руководителем самой себя'); return; }
   n.title = newTitle;
   n.name = document.getElementById('d-name').value.trim();
-  n.dept = document.getElementById('d-dept').value.trim();
+  n.subId = document.getElementById('d-sub').value || null;
   n.email = document.getElementById('d-email').value.trim();
   n.phone = document.getElementById('d-phone').value.trim();
   n.managerId = newManager;
@@ -1621,7 +1642,7 @@ function buildStandaloneProfileHtml(n){
     </div>
     <div class="body">
       <div class="field"><label>Организация</label><div class="val">${escapeHtml(orgName || '—')}</div></div>
-      <div class="field"><label>Отдел / заметка</label><div class="val">${escapeHtml(n.dept || '—')}</div></div>
+      <div class="field"><label>Подразделение</label><div class="val">${escapeHtml(positionDeptLabel(n) || '—')}</div></div>
       <div class="field"><label>Email</label><div class="val">${escapeHtml(n.email || '—')}</div></div>
       <div class="field"><label>Телефон</label><div class="val">${escapeHtml(n.phone || '—')}</div></div>
       <div class="field"><label>Руководитель</label><div class="val">${escapeHtml(managerName)}</div></div>
