@@ -65,29 +65,30 @@
   svg#connectors{position:absolute; top:0; left:0; overflow:visible; pointer-events:none;}
   .connector-path{fill:none; stroke:var(--accent-cyan-dim); stroke-width:2;}
   .org-connector-path{fill:none; stroke:var(--accent-cyan); stroke-width:3; stroke-dasharray:7 5;}
-  .sub-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:2.5; stroke-dasharray:5 4;}
-  .sub-head-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:1.5; stroke-dasharray:2 4; opacity:0.75;}
+  .sub-attach-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:2; stroke-dasharray:5 4;}
 
-  /* Subdivision frame: small box nested inside an organization, linked to its head by a line */
+  /* Subdivision frame: looks like an organization frame, sits inside the org, and attaches
+     via a line to whichever position it was told to close onto ("глава"). */
   .sub-frame{
-    position:absolute; border:2px dotted var(--lvl-2); border-radius:9px;
+    position:absolute; border:2px dotted var(--lvl-2); border-radius:12px;
     background:rgba(255,255,255,0.02);
   }
   .sub-frame-header{
-    position:relative; height:100%;
+    position:absolute; top:0; left:0; right:0; height:44px;
     display:flex; align-items:center; justify-content:flex-end;
-    padding:0 10px; cursor:grab;
+    padding:0 14px; border-bottom:1px dotted var(--lvl-2);
+    cursor:grab;
   }
   .sub-frame-header:active{cursor:grabbing;}
   .sub-frame-name{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    max-width:74%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; color:var(--ui-text);
+    max-width:72%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:13.5px; color:var(--ui-text);
     pointer-events:none;
   }
   .sub-plus-btn{
-    flex-shrink:0; width:20px; height:20px; border-radius:50%; border:1px solid var(--ui-border);
-    background:var(--panel-bg); color:var(--ui-text); cursor:pointer; font-size:13px; line-height:1;
+    flex-shrink:0; width:24px; height:24px; border-radius:50%; border:1px solid var(--ui-border);
+    background:var(--panel-bg); color:var(--ui-text); cursor:pointer; font-size:15px; line-height:1;
     display:flex; align-items:center; justify-content:center; position:relative; z-index:2;
   }
   .sub-plus-btn:hover{background:var(--ui-hover-bg);}
@@ -423,9 +424,9 @@
       <label>Название подразделения</label>
       <input id="sub-name-input" type="text" placeholder="Например: Отдел продаж">
     </div>
-    <div class="field" id="sub-head-field">
-      <label>Глава подразделения</label>
-      <select id="sub-head-select"></select>
+    <div class="field" id="sub-attach-field">
+      <label>На кого замыкается</label>
+      <select id="sub-attach-select"></select>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" id="sub-modal-cancel">Отмена</button>
@@ -576,10 +577,23 @@ function deptColor(dept){
   for(let i = 0; i < s.length; i++){ hash = (hash*31 + s.charCodeAt(i)) >>> 0; }
   return LEVEL_COLORS[hash % LEVEL_COLORS.length];
 }
-// A position's "department" label is now driven by its linked subdivision (if any);
-// falls back to old free-text dept for positions saved before subdivisions existed.
+// A position belongs to a subdivision if it's explicitly tagged with it, or if it inherits
+// membership from its manager (so subordinates of someone inside a box stay inside too,
+// unless they're explicitly tagged into a different subdivision themselves).
+function subdivisionOf(posId, guard){
+  guard = guard || 0;
+  if(guard > 200) return null; // cycle safety
+  const n = nodes[posId];
+  if(!n) return null;
+  if(n.subId && subdivisions[n.subId]) return n.subId;
+  if(n.managerId) return subdivisionOf(n.managerId, guard+1);
+  return null;
+}
+// A position's "department" label is now driven by its linked subdivision (if any, including
+// inherited membership); falls back to old free-text dept for positions saved before subdivisions existed.
 function positionDeptLabel(n){
-  if(n.subId && subdivisions[n.subId]) return subdivisions[n.subId].name;
+  const subId = subdivisionOf(n.id);
+  if(subId) return subdivisions[subId].name;
   return n.dept || '';
 }
 function deptColorFor(n){
@@ -590,7 +604,7 @@ const LEGACY_STORAGE_KEY = 'orgchart-tree-v1';
 
 let orgs = {};         // orgId -> {id, name, parentOrgId, x, y}
 let nodes = {};        // id -> {id, orgId, title, name, managerId, dept, email, phone, photo, updatedAt}
-let subdivisions = {}; // subId -> {id, orgId, name, headPositionId, parentSubId, x, y}
+let subdivisions = {}; // subId -> {id, orgId, name, attachToPositionId, x, y}
 let selectedId = null;
 let scale = 1, panX = 60, panY = 60;
 
@@ -703,56 +717,78 @@ function isAncestorOrg(ancestorId, orgId){
   }
   return false;
 }
-function isAncestorSub(ancestorId, subId){
-  let cur = subdivisions[subId];
-  let guard = 0;
-  while(cur && cur.parentSubId && guard < 200){
-    if(cur.parentSubId === ancestorId) return true;
-    cur = subdivisions[cur.parentSubId];
-    guard++;
-  }
-  return false;
-}
 
 // ---- Layout (per-organization tree layout, frames placed on one shared canvas) ----
 const SPACING_X = 230, SPACING_Y = 150;
 const ORG_HEADER_H = 44, ORG_PAD = 26, ORG_GAP = 90, CARD_W = 196, CARD_H = 78;
-const SUB_W = 190, SUB_H = 50;
-let layoutPos = {};   // positionId -> {x,y,depth} (absolute canvas coords)
-let orgFrames = {};   // orgId -> {x,y,w,h,name}
-let subFrames = {};   // subId -> {x,y,w,h,name}
+let layoutPos = {};       // positionId -> {x,y,depth} (absolute canvas coords)
+let orgFrames = {};       // orgId -> {x,y,w,h,name}
+let subFrames = {};       // subId -> {x,y,w,h,name}
+
+// Lays out a simple tree of positions (used both for an organization's main tree and for
+// the inside of a subdivision box), returning local (0,0)-based coordinates + bounding size.
+function layoutTree(rootIds, childrenOf){
+  let leafCounter = 0;
+  const localPos = {};
+  function place(nodeId, depth){
+    const kids = childrenOf(nodeId);
+    if(kids.length === 0){
+      localPos[nodeId] = {x: leafCounter*SPACING_X, y: depth*SPACING_Y, depth};
+      leafCounter++;
+    } else {
+      kids.forEach(k => place(k.id, depth+1));
+      const xs = kids.map(k => localPos[k.id].x);
+      localPos[nodeId] = {x:(Math.min(...xs)+Math.max(...xs))/2, y: depth*SPACING_Y, depth};
+    }
+  }
+  rootIds.forEach(r => { place(r, 0); leafCounter += 1; });
+  const xs = Object.values(localPos).map(p => p.x);
+  const ys = Object.values(localPos).map(p => p.y);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const width = xs.length ? (Math.max(...xs) - minX + CARD_W) : CARD_W;
+  const height = ys.length ? (Math.max(...ys) + CARD_H + 20) : 90;
+  Object.values(localPos).forEach(p => { p.x -= minX; });
+  return {positions: localPos, width, height};
+}
 
 function computeLayout(){
   layoutPos = {};
   orgFrames = {};
+  subFrames = {};
   let nextAutoX = 0;
 
+  // A position belongs to a subdivision if it's explicitly tagged with it, or if it inherits
+  // membership from its manager (so subordinates of someone inside a box stay inside too,
+  // unless they're explicitly tagged into a different subdivision themselves).
+  const membershipCache = {};
+  function subdivisionOf(posId){
+    if(membershipCache[posId] !== undefined) return membershipCache[posId];
+    const n = nodes[posId];
+    if(!n){ return null; }
+    let result;
+    if(n.subId && subdivisions[n.subId]){
+      result = n.subId;
+    } else if(n.managerId){
+      membershipCache[posId] = null; // guard against cycles while resolving
+      result = subdivisionOf(n.managerId);
+    } else {
+      result = null;
+    }
+    membershipCache[posId] = result;
+    return result;
+  }
+
+  // 1) Each organization's own tree: members of any subdivision are skipped here (they live
+  // inside their box instead), everyone else lays out exactly as before.
   Object.keys(orgs).forEach(orgId => {
     const org = orgs[orgId];
-    let leafCounter = 0;
-    const localPos = {};
+    const roots = Object.values(nodes).filter(n => n.orgId === orgId && !subdivisionOf(n.id) && !n.managerId);
+    const result = layoutTree(roots.map(n => n.id), (nodeId) =>
+      children(nodeId).filter(k => k.orgId === orgId && !subdivisionOf(k.id))
+    );
 
-    function place(node, depth){
-      const kids = children(node.id).filter(k => k.orgId === orgId);
-      if(kids.length === 0){
-        localPos[node.id] = {x: leafCounter*SPACING_X, y: depth*SPACING_Y, depth};
-        leafCounter++;
-      } else {
-        kids.forEach(k => place(k, depth+1));
-        const xs = kids.map(k => localPos[k.id].x);
-        localPos[node.id] = {x:(Math.min(...xs)+Math.max(...xs))/2, y:depth*SPACING_Y, depth};
-      }
-    }
-    orgRoots(orgId).forEach(r => { place(r, 0); leafCounter += 1; });
-
-    const xs = Object.values(localPos).map(p => p.x);
-    const ys = Object.values(localPos).map(p => p.y);
-    const minX = xs.length ? Math.min(...xs) : 0;
-    const contentW = xs.length ? (Math.max(...xs) - minX + CARD_W) : CARD_W;
-    const contentH = ys.length ? (Math.max(...ys) + CARD_H + 20) : 90;
-
-    const frameW = contentW + ORG_PAD*2;
-    const frameH = ORG_HEADER_H + contentH + ORG_PAD*2;
+    const frameW = result.width + ORG_PAD*2;
+    const frameH = ORG_HEADER_H + result.height + ORG_PAD*2;
 
     let fx = org.x, fy = org.y;
     if(fx === undefined || fx === null || fy === undefined || fy === null){
@@ -763,29 +799,48 @@ function computeLayout(){
 
     orgFrames[orgId] = {x: fx, y: fy, w: frameW, h: frameH, name: org.name};
 
-    Object.keys(localPos).forEach(pid => {
-      const lp = localPos[pid];
+    Object.keys(result.positions).forEach(pid => {
+      const lp = result.positions[pid];
       layoutPos[pid] = {
-        x: fx + ORG_PAD + (lp.x - minX),
+        x: fx + ORG_PAD + lp.x,
         y: fy + ORG_HEADER_H + ORG_PAD + lp.y,
         depth: lp.depth
       };
     });
   });
 
-  // Subdivisions: small frames, default-placed near their head position's card
-  // if the person hasn't dragged them elsewhere yet.
-  subFrames = {};
+  // 2) Each subdivision is its own box containing the local tree of its members (tagged
+  // directly, or inheriting membership through their manager), positioned near the person
+  // it attaches to (its "глава") unless it has already been dragged elsewhere.
   Object.keys(subdivisions).forEach(subId => {
     const sub = subdivisions[subId];
+    const roots = Object.values(nodes).filter(n => subdivisionOf(n.id) === subId && (!n.managerId || subdivisionOf(n.managerId) !== subId));
+    const result = layoutTree(roots.map(n => n.id), (nodeId) =>
+      children(nodeId).filter(k => subdivisionOf(k.id) === subId)
+    );
+
+    const frameW = result.width + ORG_PAD*2;
+    const frameH = ORG_HEADER_H + result.height + ORG_PAD*2;
+
     let sx = sub.x, sy = sub.y;
     if(sx === undefined || sx === null || sy === undefined || sy === null){
-      const headPos = layoutPos[sub.headPositionId];
-      if(headPos){ sx = headPos.x + CARD_W + 50; sy = headPos.y; }
+      const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
+      if(anchorPos){ sx = anchorPos.x + CARD_W + 60; sy = anchorPos.y; }
+      else if(orgFrames[sub.orgId]){ const of = orgFrames[sub.orgId]; sx = of.x + of.w + 40; sy = of.y; }
       else { sx = 0; sy = 0; }
       sub.x = sx; sub.y = sy;
     }
-    subFrames[subId] = {x: sx, y: sy, w: SUB_W, h: SUB_H, name: sub.name};
+
+    subFrames[subId] = {x: sx, y: sy, w: frameW, h: frameH, name: sub.name};
+
+    Object.keys(result.positions).forEach(pid => {
+      const lp = result.positions[pid];
+      layoutPos[pid] = {
+        x: sx + ORG_PAD + lp.x,
+        y: sy + ORG_HEADER_H + ORG_PAD + lp.y,
+        depth: lp.depth
+      };
+    });
   });
 }
 
@@ -858,7 +913,8 @@ function render(){
     }
   });
 
-  // Subdivision frames
+  // Subdivision boxes: look like organization frames, draggable, attached via a line to
+  // whichever position they were told to close onto at creation time.
   Object.keys(subFrames).forEach(subId => {
     const f = subFrames[subId];
     maxX = Math.max(maxX, f.x + f.w); maxY = Math.max(maxY, f.y + f.h);
@@ -901,31 +957,17 @@ function render(){
     world.appendChild(frame);
   });
 
-  // Subdivision connectors: to its head position (dotted), and to its parent subdivision if nested
+  // Attach connector: one line from each subdivision box to the position it closes onto.
   Object.values(subdivisions).forEach(sub => {
     const f = subFrames[sub.id];
-    if(!f) return;
-    const headPos = layoutPos[sub.headPositionId];
-    if(headPos){
-      const x1 = f.x + f.w/2, y1 = f.y + f.h/2;
-      const x2 = headPos.x + 98, y2 = headPos.y + 39;
-      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
-      path.setAttribute('class','sub-head-connector-path');
-      svg.appendChild(path);
-    }
-    if(sub.parentSubId && subFrames[sub.parentSubId]){
-      const p = subFrames[sub.parentSubId];
-      const a = (p.y <= f.y) ? p : f;
-      const b = (p.y <= f.y) ? f : p;
-      const x1 = a.x + a.w/2, y1 = a.y + a.h;
-      const x2 = b.x + b.w/2, y2 = b.y;
-      const midY = (y1 + y2) / 2;
-      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
-      path.setAttribute('class','sub-connector-path');
-      svg.appendChild(path);
-    }
+    const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
+    if(!f || !anchorPos) return;
+    const x1 = f.x + f.w/2, y1 = f.y + f.h/2;
+    const x2 = anchorPos.x + 98, y2 = anchorPos.y + 39;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+    path.setAttribute('class','sub-attach-connector-path');
+    svg.appendChild(path);
   });
 
   // Position cards + connectors
@@ -1130,22 +1172,8 @@ function buildSubPlusMenuHtml(subId){
   const sub = subdivisions[subId];
   let html = '';
   html += `<div class="ctx-item" data-action="rename-subdivision" data-sub-id="${subId}">Переименовать подразделение</div>`;
+  html += `<div class="ctx-item" data-action="reattach-subdivision" data-sub-id="${subId}">Изменить, на кого замыкается</div>`;
   html += `<div class="ctx-item" data-action="add-position-in-sub" data-preset-org-id="${sub.orgId}" data-preset-sub-id="${subId}">+ Добавить должность</div>`;
-  html += `<div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${sub.orgId}" data-preset-parent-sub-id="${subId}">+ Добавить вложенное подразделение</div>`;
-  html += `<div class="ctx-sep"></div>`;
-  if(sub.parentSubId){
-    html += `<div class="ctx-item danger" data-action="detach-subdivision" data-sub-id="${subId}">Открепить от подразделения</div>`;
-    html += `<div class="ctx-sep"></div>`;
-  }
-  html += `<div class="ctx-label">Прикрепить к подразделению</div>`;
-  const others = Object.values(subdivisions).filter(s => s.id !== subId && s.orgId === sub.orgId && !isAncestorSub(subId, s.id));
-  if(others.length === 0){
-    html += `<div class="ctx-item disabled">Нет доступных подразделений</div>`;
-  } else {
-    others.forEach(s => {
-      html += `<div class="ctx-item" data-action="attach-subdivision" data-child-sub="${subId}" data-parent-sub="${s.id}">${escapeHtml(s.name)}</div>`;
-    });
-  }
   html += `<div class="ctx-sep"></div>`;
   html += `<div class="ctx-item danger" data-action="delete-subdivision" data-sub-id="${subId}">Удалить подразделение</div>`;
   return html;
@@ -1176,15 +1204,12 @@ ctxMenu.addEventListener('click', async (e) => {
   } else if(action === 'add-subdivision'){
     openAddSubdivisionModal({
       presetOrgId: item.dataset.presetOrgId,
-      presetParentSubId: item.dataset.presetParentSubId || null,
       worldPoint: pendingCtxWorldPoint
     });
   } else if(action === 'rename-subdivision'){
     openRenameSubdivisionModal(item.dataset.subId);
-  } else if(action === 'attach-subdivision'){
-    await attachSubToParent(item.dataset.childSub, item.dataset.parentSub);
-  } else if(action === 'detach-subdivision'){
-    await detachSub(item.dataset.subId);
+  } else if(action === 'reattach-subdivision'){
+    openReattachSubdivisionModal(item.dataset.subId);
   } else if(action === 'delete-subdivision'){
     await deleteSubdivisionById(item.dataset.subId);
   }
@@ -1210,20 +1235,11 @@ async function detachOrg(orgId){
   applyTransform();
 }
 
-async function attachSubToParent(childSubId, parentSubId){
-  subdivisions[childSubId].parentSubId = parentSubId;
-  const parentFrame = subFrames[parentSubId];
-  const childFrame = subFrames[childSubId];
-  if(parentFrame && childFrame){
-    subdivisions[childSubId].x = parentFrame.x + (parentFrame.w - childFrame.w) / 2;
-    subdivisions[childSubId].y = parentFrame.y + parentFrame.h + 40;
-  }
-  await saveData();
-  render();
-  applyTransform();
-}
-async function detachSub(subId){
-  subdivisions[subId].parentSubId = null;
+async function reattachSubdivision(subId, newAttachToPositionId){
+  subdivisions[subId].attachToPositionId = newAttachToPositionId;
+  // Reposition the box near its new attachment point, like a freshly created one.
+  subdivisions[subId].x = null;
+  subdivisions[subId].y = null;
   await saveData();
   render();
   applyTransform();
@@ -1231,8 +1247,7 @@ async function detachSub(subId){
 async function deleteSubdivisionById(subId){
   const sub = subdivisions[subId];
   if(!sub) return;
-  if(!confirm(`Удалить подразделение «${sub.name}»? Вложенные подразделения станут верхнеуровневыми, а привязанные должности останутся без подразделения.`)) return;
-  Object.values(subdivisions).forEach(s => { if(s.parentSubId === subId) s.parentSubId = sub.parentSubId; });
+  if(!confirm(`Удалить подразделение «${sub.name}»? Привязанные должности останутся без подразделения.`)) return;
   Object.values(nodes).forEach(n => { if(n.subId === subId) n.subId = null; });
   delete subdivisions[subId];
   await saveData();
@@ -1280,10 +1295,9 @@ document.getElementById('org-modal-save').onclick = async () => {
   document.getElementById('org-modal-overlay').classList.remove('open');
 };
 
-// ---- Add / Rename subdivision modal ----
-let subModalMode = 'create'; // 'create' | 'rename'
+// ---- Add / Rename / Reattach subdivision modal ----
+let subModalMode = 'create'; // 'create' | 'rename' | 'reattach'
 let subModalTargetId = null;
-let subModalParentSubId = null;
 let subModalWorldPoint = null;
 
 document.getElementById('sub-modal-cancel').onclick = () => document.getElementById('sub-modal-overlay').classList.remove('open');
@@ -1291,40 +1305,40 @@ document.getElementById('sub-modal-overlay').addEventListener('click', (e) => {
   if(e.target.id === 'sub-modal-overlay') document.getElementById('sub-modal-overlay').classList.remove('open');
 });
 
-function populateSubHeadSelect(orgId){
-  const select = document.getElementById('sub-head-select');
+function populateAttachSelect(selectEl, orgId, currentPositionId){
   const positions = Object.values(nodes).filter(n => n.orgId === orgId);
   if(positions.length === 0){
-    select.innerHTML = `<option value="">Нет должностей в этой организации</option>`;
+    selectEl.innerHTML = `<option value="">Нет должностей в этой организации</option>`;
   } else {
-    select.innerHTML = positions.map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`).join('');
+    selectEl.innerHTML = positions.map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`).join('');
   }
+  if(currentPositionId) selectEl.value = currentPositionId;
 }
 
 function openAddSubdivisionModal(opts){
   opts = opts || {};
   subModalMode = 'create';
   subModalTargetId = null;
-  subModalParentSubId = opts.presetParentSubId || null;
   subModalWorldPoint = opts.worldPoint || null;
 
-  document.getElementById('sub-modal-title').textContent = subModalParentSubId ? 'Новое вложенное подразделение' : 'Новое подразделение';
+  document.getElementById('sub-modal-title').textContent = 'Новое подразделение';
   document.getElementById('sub-modal-save').textContent = 'Создать';
   document.getElementById('sub-org-field').style.display = '';
-  document.getElementById('sub-head-field').style.display = '';
+  document.getElementById('sub-attach-field').style.display = '';
   document.getElementById('sub-name-input').value = '';
+  document.getElementById('sub-name-input').disabled = false;
 
   const orgSelect = document.getElementById('sub-org-select');
   populateOrgSelect(orgSelect);
   const defaultOrgId = opts.presetOrgId || Object.keys(orgs)[0];
   orgSelect.value = defaultOrgId;
-  orgSelect.disabled = !!opts.presetParentSubId; // nested subdivisions must stay in the parent's organization
-  populateSubHeadSelect(defaultOrgId);
+  orgSelect.disabled = false;
+  populateAttachSelect(document.getElementById('sub-attach-select'), defaultOrgId, null);
 
   document.getElementById('sub-modal-overlay').classList.add('open');
 }
 document.getElementById('sub-org-select').addEventListener('change', (e) => {
-  populateSubHeadSelect(e.target.value);
+  if(subModalMode === 'create') populateAttachSelect(document.getElementById('sub-attach-select'), e.target.value, null);
 });
 
 function openRenameSubdivisionModal(subId){
@@ -1333,22 +1347,46 @@ function openRenameSubdivisionModal(subId){
   document.getElementById('sub-modal-title').textContent = 'Переименовать подразделение';
   document.getElementById('sub-modal-save').textContent = 'Сохранить';
   document.getElementById('sub-org-field').style.display = 'none';
-  document.getElementById('sub-head-field').style.display = 'none';
+  document.getElementById('sub-attach-field').style.display = 'none';
   document.getElementById('sub-name-input').value = subdivisions[subId].name || '';
+  document.getElementById('sub-name-input').disabled = false;
+  document.getElementById('sub-modal-overlay').classList.add('open');
+}
+
+function openReattachSubdivisionModal(subId){
+  subModalMode = 'reattach';
+  subModalTargetId = subId;
+  const sub = subdivisions[subId];
+  document.getElementById('sub-modal-title').textContent = 'На кого замыкается «' + sub.name + '»';
+  document.getElementById('sub-modal-save').textContent = 'Сохранить';
+  document.getElementById('sub-org-field').style.display = 'none';
+  document.getElementById('sub-attach-field').style.display = '';
+  document.getElementById('sub-name-input').value = sub.name;
+  document.getElementById('sub-name-input').disabled = true;
+  populateAttachSelect(document.getElementById('sub-attach-select'), sub.orgId, sub.attachToPositionId);
   document.getElementById('sub-modal-overlay').classList.add('open');
 }
 
 document.getElementById('sub-modal-save').onclick = async () => {
-  const name = document.getElementById('sub-name-input').value.trim();
-  if(!name){ alert('Укажите название подразделения'); return; }
-  if(subModalMode === 'rename' && subModalTargetId){
+  if(subModalMode === 'rename'){
+    const name = document.getElementById('sub-name-input').value.trim();
+    if(!name){ alert('Укажите название подразделения'); return; }
     subdivisions[subModalTargetId].name = name;
+  } else if(subModalMode === 'reattach'){
+    const attachTo = document.getElementById('sub-attach-select').value;
+    if(!attachTo){ alert('Выберите, на кого замыкается подразделение'); return; }
+    await reattachSubdivision(subModalTargetId, attachTo);
+    document.getElementById('sub-modal-overlay').classList.remove('open');
+    return;
   } else {
+    const name = document.getElementById('sub-name-input').value.trim();
+    if(!name){ alert('Укажите название подразделения'); return; }
     const orgId = document.getElementById('sub-org-select').value;
-    const headPositionId = document.getElementById('sub-head-select').value;
-    if(!orgId || !headPositionId){ alert('В этой организации пока нет должностей — сначала добавьте хотя бы одну.'); return; }
+    const attachTo = document.getElementById('sub-attach-select').value;
+    if(!orgId){ alert('Сначала создайте организацию'); return; }
+    if(!attachTo){ alert('Выберите, на кого замыкается подразделение — сначала добавьте хотя бы одну должность в организацию.'); return; }
     const id = uid('s');
-    const sub = {id, orgId, name, headPositionId, parentSubId: subModalParentSubId, x: null, y: null};
+    const sub = {id, orgId, name, attachToPositionId: attachTo, x: null, y: null};
     if(subModalWorldPoint){ sub.x = Math.round(subModalWorldPoint.x); sub.y = Math.round(subModalWorldPoint.y); }
     subdivisions[id] = sub;
   }
@@ -1586,8 +1624,6 @@ async function deletePositionById(id){
   if(!confirm(`Удалить должность «${n.title}»? Подчинённые перейдут к вышестоящему руководителю.`)) return;
   const parentId = n.managerId;
   children(id).forEach(c => { c.managerId = parentId; });
-  // If this position headed any subdivision, hand that subdivision to its manager instead.
-  Object.values(subdivisions).forEach(s => { if(s.headPositionId === id) s.headPositionId = parentId; });
   delete nodes[id];
   await saveData();
   if(selectedId === id){
