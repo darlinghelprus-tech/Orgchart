@@ -82,7 +82,7 @@
   .sub-frame-header:active{cursor:grabbing;}
   .sub-frame-name{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    max-width:72%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:76%; white-space:normal; line-height:1.25; text-align:center;
     font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:13.5px; color:var(--ui-text);
     pointer-events:none;
   }
@@ -107,7 +107,7 @@
   .org-frame-header:active{cursor:grabbing;}
   .org-frame-name{
     position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    max-width:72%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:76%; white-space:normal; line-height:1.25; text-align:center;
     font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; color:var(--ui-text);
     pointer-events:none;
   }
@@ -720,10 +720,18 @@ function isAncestorOrg(ancestorId, orgId){
 
 // ---- Layout (per-organization tree layout, frames placed on one shared canvas) ----
 const SPACING_X = 230, SPACING_Y = 150;
-const ORG_HEADER_H = 44, ORG_PAD = 26, ORG_GAP = 90, CARD_W = 196, CARD_H = 78;
+const ORG_PAD = 26, ORG_GAP = 90, CARD_W = 196, CARD_H = 78;
 let layoutPos = {};       // positionId -> {x,y,depth} (absolute canvas coords)
-let orgFrames = {};       // orgId -> {x,y,w,h,name}
-let subFrames = {};       // subId -> {x,y,w,h,name}
+let orgFrames = {};       // orgId -> {x,y,w,h,name,headerH}
+let subFrames = {};       // subId -> {x,y,w,h,name,headerH}
+
+// A long frame name gets a taller header (so it can wrap onto a second line) and a
+// minimum frame width, instead of being truncated with an ellipsis.
+function headerSizingFor(name){
+  const len = (name || '').length;
+  if(len <= 22) return {height: 44, minWidth: 170};
+  return {height: 64, minWidth: Math.min(520, 150 + len*6.4)};
+}
 
 // Lays out a simple tree of positions (used both for an organization's main tree and for
 // the inside of a subdivision box), returning local (0,0)-based coordinates + bounding size.
@@ -778,69 +786,80 @@ function computeLayout(){
     return result;
   }
 
-  // 1) Each organization's own tree: members of any subdivision are skipped here (they live
-  // inside their box instead), everyone else lays out exactly as before.
   Object.keys(orgs).forEach(orgId => {
     const org = orgs[orgId];
+    const orgHeader = headerSizingFor(org.name);
+
+    // 1) This organization's own tree: members of any subdivision are skipped here (they
+    // live inside their box instead), everyone else lays out exactly as before.
     const roots = Object.values(nodes).filter(n => n.orgId === orgId && !subdivisionOf(n.id) && !n.managerId);
     const result = layoutTree(roots.map(n => n.id), (nodeId) =>
       children(nodeId).filter(k => k.orgId === orgId && !subdivisionOf(k.id))
     );
-
-    const frameW = result.width + ORG_PAD*2;
-    const frameH = ORG_HEADER_H + result.height + ORG_PAD*2;
+    const cardsW = Math.max(result.width + ORG_PAD*2, orgHeader.minWidth);
+    const cardsH = orgHeader.height + result.height + ORG_PAD*2;
 
     let fx = org.x, fy = org.y;
     if(fx === undefined || fx === null || fy === undefined || fy === null){
       fx = nextAutoX; fy = 0;
       org.x = fx; org.y = fy;
     }
-    nextAutoX = Math.max(nextAutoX, fx + frameW + ORG_GAP);
-
-    orgFrames[orgId] = {x: fx, y: fy, w: frameW, h: frameH, name: org.name};
 
     Object.keys(result.positions).forEach(pid => {
       const lp = result.positions[pid];
       layoutPos[pid] = {
         x: fx + ORG_PAD + lp.x,
-        y: fy + ORG_HEADER_H + ORG_PAD + lp.y,
+        y: fy + orgHeader.height + ORG_PAD + lp.y,
         depth: lp.depth
       };
     });
-  });
 
-  // 2) Each subdivision is its own box containing the local tree of its members (tagged
-  // directly, or inheriting membership through their manager), positioned near the person
-  // it attaches to (its "глава") unless it has already been dragged elsewhere.
-  Object.keys(subdivisions).forEach(subId => {
-    const sub = subdivisions[subId];
-    const roots = Object.values(nodes).filter(n => subdivisionOf(n.id) === subId && (!n.managerId || subdivisionOf(n.managerId) !== subId));
-    const result = layoutTree(roots.map(n => n.id), (nodeId) =>
-      children(nodeId).filter(k => subdivisionOf(k.id) === subId)
-    );
+    // 2) This organization's subdivisions: each is its own box containing the local tree of
+    // its members (tagged directly, or inheriting membership through their manager),
+    // positioned near the person it attaches to ("на кого замыкается") unless already dragged.
+    const subsOfOrg = Object.values(subdivisions).filter(s => s.orgId === orgId);
+    subsOfOrg.forEach(sub => {
+      const subHeader = headerSizingFor(sub.name);
+      const subRoots = Object.values(nodes).filter(n => subdivisionOf(n.id) === sub.id && (!n.managerId || subdivisionOf(n.managerId) !== sub.id));
+      const subResult = layoutTree(subRoots.map(n => n.id), (nodeId) =>
+        children(nodeId).filter(k => subdivisionOf(k.id) === sub.id)
+      );
+      const subW = Math.max(subResult.width + ORG_PAD*2, subHeader.minWidth);
+      const subH = subHeader.height + subResult.height + ORG_PAD*2;
 
-    const frameW = result.width + ORG_PAD*2;
-    const frameH = ORG_HEADER_H + result.height + ORG_PAD*2;
+      let sx = sub.x, sy = sub.y;
+      if(sx === undefined || sx === null || sy === undefined || sy === null){
+        const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
+        if(anchorPos){ sx = anchorPos.x + CARD_W + 60; sy = anchorPos.y; }
+        else { sx = fx + cardsW + 40; sy = fy; }
+        sub.x = sx; sub.y = sy;
+      }
 
-    let sx = sub.x, sy = sub.y;
-    if(sx === undefined || sx === null || sy === undefined || sy === null){
-      const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
-      if(anchorPos){ sx = anchorPos.x + CARD_W + 60; sy = anchorPos.y; }
-      else if(orgFrames[sub.orgId]){ const of = orgFrames[sub.orgId]; sx = of.x + of.w + 40; sy = of.y; }
-      else { sx = 0; sy = 0; }
-      sub.x = sx; sub.y = sy;
-    }
+      subFrames[sub.id] = {x: sx, y: sy, w: subW, h: subH, name: sub.name, headerH: subHeader.height};
 
-    subFrames[subId] = {x: sx, y: sy, w: frameW, h: frameH, name: sub.name};
-
-    Object.keys(result.positions).forEach(pid => {
-      const lp = result.positions[pid];
-      layoutPos[pid] = {
-        x: sx + ORG_PAD + lp.x,
-        y: sy + ORG_HEADER_H + ORG_PAD + lp.y,
-        depth: lp.depth
-      };
+      Object.keys(subResult.positions).forEach(pid => {
+        const lp = subResult.positions[pid];
+        layoutPos[pid] = {
+          x: sx + ORG_PAD + lp.x,
+          y: sy + subHeader.height + ORG_PAD + lp.y,
+          depth: lp.depth
+        };
+      });
     });
+
+    // 3) The organization's own frame must fully contain its position tree AND every one of
+    // its subdivision boxes (wherever they currently sit), so nothing appears to escape it.
+    let minX = fx, minY = fy, maxX = fx + cardsW, maxY = fy + cardsH;
+    subsOfOrg.forEach(sub => {
+      const sf = subFrames[sub.id];
+      minX = Math.min(minX, sf.x - ORG_PAD);
+      minY = Math.min(minY, sf.y - ORG_PAD);
+      maxX = Math.max(maxX, sf.x + sf.w + ORG_PAD);
+      maxY = Math.max(maxY, sf.y + sf.h + ORG_PAD);
+    });
+
+    orgFrames[orgId] = {x: minX, y: minY, w: maxX - minX, h: maxY - minY, name: org.name, headerH: orgHeader.height};
+    nextAutoX = Math.max(nextAutoX, maxX + ORG_GAP);
   });
 }
 
@@ -862,7 +881,7 @@ function render(){
     frame.style.width = f.w + 'px'; frame.style.height = f.h + 'px';
     frame.dataset.orgId = orgId;
     frame.innerHTML = `
-      <div class="org-frame-header">
+      <div class="org-frame-header" style="height:${f.headerH}px;">
         <span class="org-frame-name">${escapeHtml(f.name)}</span>
         <button class="org-plus-btn" data-org-id="${orgId}" title="Действия организации">+</button>
       </div>`;
@@ -924,7 +943,7 @@ function render(){
     frame.style.width = f.w + 'px'; frame.style.height = f.h + 'px';
     frame.dataset.subId = subId;
     frame.innerHTML = `
-      <div class="sub-frame-header">
+      <div class="sub-frame-header" style="height:${f.headerH}px;">
         <span class="sub-frame-name">${escapeHtml(f.name)}</span>
         <button class="sub-plus-btn" data-sub-id="${subId}" title="Действия подразделения">+</button>
       </div>`;
@@ -957,12 +976,13 @@ function render(){
     world.appendChild(frame);
   });
 
-  // Attach connector: one line from each subdivision box to the position it closes onto.
+  // Attach connector: one line from the top-center of each subdivision box (like the
+  // organization-to-organization connectors) to the position it closes onto.
   Object.values(subdivisions).forEach(sub => {
     const f = subFrames[sub.id];
     const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
     if(!f || !anchorPos) return;
-    const x1 = f.x + f.w/2, y1 = f.y + f.h/2;
+    const x1 = f.x + f.w/2, y1 = f.y;
     const x2 = anchorPos.x + 98, y2 = anchorPos.y + 39;
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
     path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
