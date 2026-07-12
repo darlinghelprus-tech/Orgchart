@@ -66,7 +66,6 @@
   .connector-path{fill:none; stroke:var(--accent-cyan-dim); stroke-width:2;}
   .org-connector-path{fill:none; stroke:var(--accent-cyan); stroke-width:3; stroke-dasharray:7 5;}
   .sub-attach-connector-path{fill:none; stroke:var(--lvl-2); stroke-width:2; stroke-dasharray:5 4;}
-
   /* Subdivision frame: looks like an organization frame, sits inside the org, and attaches
      via a line to whichever position it was told to close onto ("глава"). */
   .sub-frame{
@@ -420,6 +419,10 @@
       <label>Организация</label>
       <select id="sub-org-select"></select>
     </div>
+    <div class="field" id="sub-parent-field">
+      <label>Подразделение</label>
+      <select id="sub-parent-select"></select>
+    </div>
     <div class="field">
       <label>Название подразделения</label>
       <input id="sub-name-input" type="text" placeholder="Например: Отдел продаж">
@@ -566,6 +569,9 @@
 
 <script>
 const LEVEL_COLORS = ['var(--lvl-0)','var(--lvl-1)','var(--lvl-2)','var(--lvl-3)'];
+// Nested subdivisions cycle through this palette by depth, so an inner subdivision is
+// visually distinguishable from the one that contains it.
+const SUB_DEPTH_COLORS = ['var(--lvl-2)', 'var(--accent-cyan)', 'var(--lvl-1)', 'var(--lvl-3)', 'var(--lvl-0)'];
 
 // Deterministic color per department name, so the same department always gets the
 // same accent color across the whole chart, instead of colors depending on hierarchy depth.
@@ -604,7 +610,7 @@ const LEGACY_STORAGE_KEY = 'orgchart-tree-v1';
 
 let orgs = {};         // orgId -> {id, name, parentOrgId, x, y}
 let nodes = {};        // id -> {id, orgId, title, name, managerId, dept, email, phone, photo, updatedAt}
-let subdivisions = {}; // subId -> {id, orgId, name, attachToPositionId, x, y}
+let subdivisions = {}; // subId -> {id, orgId, name, attachToPositionId, parentSubId, x, y}
 let selectedId = null;
 let scale = 1, panX = 60, panY = 60;
 
@@ -706,6 +712,17 @@ function children(id){
 }
 function orgRoots(orgId){
   return Object.values(nodes).filter(n => n.orgId === orgId && (!n.managerId || !nodes[n.managerId] || nodes[n.managerId].orgId !== orgId));
+}
+function subDepthOf(subId){
+  let depth = 0;
+  let cur = subdivisions[subId];
+  let guard = 0;
+  while(cur && cur.parentSubId && guard < 200){
+    depth++;
+    cur = subdivisions[cur.parentSubId];
+    guard++;
+  }
+  return depth;
 }
 function isAncestorOrg(ancestorId, orgId){
   let cur = orgs[orgId];
@@ -812,16 +829,69 @@ function computeLayout(){
     return result;
   }
 
+  // The tree of positions belonging directly to one "level" -- either an organization's own
+  // top level (memberSubId=null) or one specific subdivision's own direct members (excluding
+  // anyone absorbed by a subdivision nested inside it, which is handled separately).
+  function levelContent(memberSubId, orgId){
+    const roots = Object.values(nodes).filter(n =>
+      n.orgId === orgId && subdivisionOf(n.id) === memberSubId &&
+      (!n.managerId || subdivisionOf(n.managerId) !== memberSubId)
+    );
+    return layoutTree(roots.map(n => n.id), (nodeId) =>
+      children(nodeId).filter(k => k.orgId === orgId && subdivisionOf(k.id) === memberSubId)
+    );
+  }
+
+  // Lays out one subdivision box: its own direct members, plus (recursively) any subdivisions
+  // nested inside it. Returns the box's final absolute {x,y,w,h,headerH} and also fills in
+  // layoutPos/subFrames for everything inside it, however deep.
+  function layoutSubdivisionBox(sub){
+    const subHeader = headerSizingFor(sub.name, 13.5);
+    const content = levelContent(sub.id, sub.orgId);
+
+    let sx = sub.x, sy = sub.y;
+    if(sx === undefined || sx === null || sy === undefined || sy === null){
+      const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
+      if(anchorPos){ sx = anchorPos.x + CARD_W + 60; sy = anchorPos.y; }
+      else { sx = 0; sy = 0; }
+      sub.x = sx; sub.y = sy;
+    }
+
+    Object.keys(content.positions).forEach(pid => {
+      const lp = content.positions[pid];
+      layoutPos[pid] = {
+        x: sx + ORG_PAD + lp.x,
+        y: sy + subHeader.height + ORG_PAD + lp.y,
+        depth: lp.depth
+      };
+    });
+
+    const contentW = Math.max(content.width + ORG_PAD*2, subHeader.minWidth);
+    const contentH = subHeader.height + content.height + ORG_PAD*2;
+
+    let minX = sx, minY = sy, maxX = sx + contentW, maxY = sy + contentH;
+    const childSubs = Object.values(subdivisions).filter(s => s.parentSubId === sub.id);
+    childSubs.forEach(child => {
+      const cf = layoutSubdivisionBox(child);
+      minX = Math.min(minX, cf.x - ORG_PAD);
+      minY = Math.min(minY, cf.y - ORG_PAD);
+      maxX = Math.max(maxX, cf.x + cf.w + ORG_PAD);
+      maxY = Math.max(maxY, cf.y + cf.h + ORG_PAD);
+    });
+
+    const depth = subDepthOf(sub.id);
+    const frame = {x: minX, y: minY, w: maxX - minX, h: maxY - minY, name: sub.name, headerH: subHeader.height, depth};
+    subFrames[sub.id] = frame;
+    return frame;
+  }
+
   Object.keys(orgs).forEach(orgId => {
     const org = orgs[orgId];
     const orgHeader = headerSizingFor(org.name, 14);
 
     // 1) This organization's own tree: members of any subdivision are skipped here (they
     // live inside their box instead), everyone else lays out exactly as before.
-    const roots = Object.values(nodes).filter(n => n.orgId === orgId && !subdivisionOf(n.id) && !n.managerId);
-    const result = layoutTree(roots.map(n => n.id), (nodeId) =>
-      children(nodeId).filter(k => k.orgId === orgId && !subdivisionOf(k.id))
-    );
+    const result = levelContent(null, orgId);
     const cardsW = Math.max(result.width + ORG_PAD*2, orgHeader.minWidth);
     const cardsH = orgHeader.height + result.height + ORG_PAD*2;
 
@@ -840,50 +910,21 @@ function computeLayout(){
       };
     });
 
-    // 2) This organization's subdivisions: each is its own box containing the local tree of
-    // its members (tagged directly, or inheriting membership through their manager),
-    // positioned near the person it attaches to ("на кого замыкается") unless already dragged.
-    const subsOfOrg = Object.values(subdivisions).filter(s => s.orgId === orgId);
-    subsOfOrg.forEach(sub => {
-      const subHeader = headerSizingFor(sub.name, 13.5);
-      const subRoots = Object.values(nodes).filter(n => subdivisionOf(n.id) === sub.id && (!n.managerId || subdivisionOf(n.managerId) !== sub.id));
-      const subResult = layoutTree(subRoots.map(n => n.id), (nodeId) =>
-        children(nodeId).filter(k => subdivisionOf(k.id) === sub.id)
-      );
-      const subW = Math.max(subResult.width + ORG_PAD*2, subHeader.minWidth);
-      const subH = subHeader.height + subResult.height + ORG_PAD*2;
-
-      let sx = sub.x, sy = sub.y;
-      if(sx === undefined || sx === null || sy === undefined || sy === null){
-        const anchorPos = sub.attachToPositionId ? layoutPos[sub.attachToPositionId] : null;
-        if(anchorPos){ sx = anchorPos.x + CARD_W + 60; sy = anchorPos.y; }
-        else { sx = fx + cardsW + 40; sy = fy; }
-        sub.x = sx; sub.y = sy;
-      }
-
-      subFrames[sub.id] = {x: sx, y: sy, w: subW, h: subH, name: sub.name, headerH: subHeader.height};
-
-      Object.keys(subResult.positions).forEach(pid => {
-        const lp = subResult.positions[pid];
-        layoutPos[pid] = {
-          x: sx + ORG_PAD + lp.x,
-          y: sy + subHeader.height + ORG_PAD + lp.y,
-          depth: lp.depth
-        };
-      });
-    });
-
-    // 3) The organization's own frame must fully contain its position tree AND every one of
-    // its subdivision boxes (wherever they currently sit), so nothing appears to escape it.
+    // 2) This organization's top-level subdivisions (each recursively lays out any of its
+    // own nested subdivisions too), positioned near the person each attaches to unless
+    // already dragged elsewhere.
+    const topSubs = Object.values(subdivisions).filter(s => s.orgId === orgId && !s.parentSubId);
     let minX = fx, minY = fy, maxX = fx + cardsW, maxY = fy + cardsH;
-    subsOfOrg.forEach(sub => {
-      const sf = subFrames[sub.id];
+    topSubs.forEach(sub => {
+      const sf = layoutSubdivisionBox(sub);
       minX = Math.min(minX, sf.x - ORG_PAD);
       minY = Math.min(minY, sf.y - ORG_PAD);
       maxX = Math.max(maxX, sf.x + sf.w + ORG_PAD);
       maxY = Math.max(maxY, sf.y + sf.h + ORG_PAD);
     });
 
+    // 3) The organization's own frame must fully contain its position tree AND every one of
+    // its subdivision boxes (wherever they currently sit), so nothing appears to escape it.
     orgFrames[orgId] = {x: minX, y: minY, w: maxX - minX, h: maxY - minY, name: org.name, headerH: orgHeader.height};
     nextAutoX = Math.max(nextAutoX, maxX + ORG_GAP);
   });
@@ -959,17 +1000,22 @@ function render(){
   });
 
   // Subdivision boxes: look like organization frames, draggable, attached via a line to
-  // whichever position they were told to close onto at creation time.
-  Object.keys(subFrames).forEach(subId => {
+  // whichever position they were told to close onto at creation time. Rendered shallowest
+  // first so a nested (deeper) box's own background sits on top and can be clicked/dragged
+  // independently of the box that contains it.
+  const subIdsByDepth = Object.keys(subFrames).sort((a, b) => subFrames[a].depth - subFrames[b].depth);
+  subIdsByDepth.forEach(subId => {
     const f = subFrames[subId];
     maxX = Math.max(maxX, f.x + f.w); maxY = Math.max(maxY, f.y + f.h);
+    const color = SUB_DEPTH_COLORS[f.depth % SUB_DEPTH_COLORS.length];
     const frame = document.createElement('div');
     frame.className = 'sub-frame';
     frame.style.left = f.x + 'px'; frame.style.top = f.y + 'px';
     frame.style.width = f.w + 'px'; frame.style.height = f.h + 'px';
+    frame.style.borderColor = color;
     frame.dataset.subId = subId;
     frame.innerHTML = `
-      <div class="sub-frame-header" style="height:${f.headerH}px;">
+      <div class="sub-frame-header" style="height:${f.headerH}px; border-bottom-color:${color};">
         <span class="sub-frame-name">${escapeHtml(f.name)}</span>
         <button class="sub-plus-btn" data-sub-id="${subId}" title="Действия подразделения">+</button>
       </div>`;
@@ -999,6 +1045,15 @@ function render(){
       }
     });
 
+    // Clicking blank space inside this subdivision's own area (not its header, not a card,
+    // not a nested child box) offers to add a subdivision nested inside this one.
+    frame.addEventListener('click', (e) => {
+      if(e.target !== frame) return;
+      e.stopPropagation();
+      pendingCtxWorldPoint = screenToWorld(e.clientX, e.clientY);
+      showCtxMenu(e.clientX, e.clientY, buildSubEmptySpaceMenuHtml(subId));
+    });
+
     world.appendChild(frame);
   });
 
@@ -1013,6 +1068,7 @@ function render(){
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
     path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
     path.setAttribute('class','sub-attach-connector-path');
+    path.setAttribute('style', `stroke:${SUB_DEPTH_COLORS[f.depth % SUB_DEPTH_COLORS.length]}`);
     svg.appendChild(path);
   });
 
@@ -1222,9 +1278,17 @@ function buildSubPlusMenuHtml(subId){
   html += `<div class="ctx-item" data-action="rename-subdivision" data-sub-id="${subId}">Переименовать подразделение</div>`;
   html += `<div class="ctx-item" data-action="reattach-subdivision" data-sub-id="${subId}">Изменить, на кого замыкается</div>`;
   html += `<div class="ctx-item" data-action="add-position-in-sub" data-preset-org-id="${sub.orgId}" data-preset-sub-id="${subId}">+ Добавить должность</div>`;
+  html += `<div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${sub.orgId}" data-preset-parent-sub-id="${subId}">+ Добавить внутреннее подразделение</div>`;
   html += `<div class="ctx-sep"></div>`;
   html += `<div class="ctx-item danger" data-action="delete-subdivision" data-sub-id="${subId}">Удалить подразделение</div>`;
   return html;
+}
+function buildSubEmptySpaceMenuHtml(subId){
+  const sub = subdivisions[subId];
+  return `
+    <div class="ctx-item" data-action="add-subdivision" data-preset-org-id="${sub.orgId}" data-preset-parent-sub-id="${subId}">+ Добавить внутреннее подразделение</div>
+    <div class="ctx-item" data-action="add-position-in-sub" data-preset-org-id="${sub.orgId}" data-preset-sub-id="${subId}">+ Добавить должность</div>
+  `;
 }
 
 ctxMenu.addEventListener('click', async (e) => {
@@ -1252,6 +1316,7 @@ ctxMenu.addEventListener('click', async (e) => {
   } else if(action === 'add-subdivision'){
     openAddSubdivisionModal({
       presetOrgId: item.dataset.presetOrgId,
+      presetParentSubId: item.dataset.presetParentSubId || null,
       worldPoint: pendingCtxWorldPoint
     });
   } else if(action === 'rename-subdivision'){
@@ -1330,7 +1395,12 @@ async function reattachSubdivision(subId, newAttachToPositionId){
 async function deleteSubdivisionById(subId){
   const sub = subdivisions[subId];
   if(!sub) return;
-  if(!confirm(`Удалить подразделение «${sub.name}»? Привязанные должности останутся без подразделения.`)) return;
+  const hasNested = Object.values(subdivisions).some(s => s.parentSubId === subId);
+  const msg = hasNested
+    ? `Удалить подразделение «${sub.name}»? Вложенные подразделения поднимутся на уровень выше, а привязанные должности останутся без подразделения.`
+    : `Удалить подразделение «${sub.name}»? Привязанные должности останутся без подразделения.`;
+  if(!confirm(msg)) return;
+  Object.values(subdivisions).forEach(s => { if(s.parentSubId === subId) s.parentSubId = sub.parentSubId; });
   Object.values(nodes).forEach(n => { if(n.subId === subId) n.subId = null; });
   delete subdivisions[subId];
   await saveData();
@@ -1388,14 +1458,46 @@ document.getElementById('sub-modal-overlay').addEventListener('click', (e) => {
   if(e.target.id === 'sub-modal-overlay') document.getElementById('sub-modal-overlay').classList.remove('open');
 });
 
-function populateAttachSelect(selectEl, orgId, currentPositionId){
-  const positions = Object.values(nodes).filter(n => n.orgId === orgId);
+function populateAttachSelect(selectEl, orgId, currentPositionId, restrictToSubId){
+  let positions = Object.values(nodes).filter(n => n.orgId === orgId);
+  if(restrictToSubId){
+    positions = positions.filter(n => subdivisionMemberOf(n.id) === restrictToSubId);
+  }
   if(positions.length === 0){
-    selectEl.innerHTML = `<option value="">Нет должностей в этой организации</option>`;
+    selectEl.innerHTML = restrictToSubId
+      ? `<option value="">Нет должностей в этом подразделении</option>`
+      : `<option value="">Нет должностей в этой организации</option>`;
   } else {
     selectEl.innerHTML = positions.map(n => `<option value="${n.id}">${escapeHtml(n.title)} — ${escapeHtml(n.name||'—')}</option>`).join('');
   }
   if(currentPositionId) selectEl.value = currentPositionId;
+}
+
+// Standalone (non-memoized) version of the same membership rule used in computeLayout,
+// for populating selects outside of a layout pass.
+function subdivisionMemberOf(posId, guard){
+  guard = guard || 0;
+  if(guard > 200) return null;
+  const n = nodes[posId];
+  if(!n) return null;
+  if(n.subId && subdivisions[n.subId]) return n.subId;
+  if(n.managerId) return subdivisionMemberOf(n.managerId, guard+1);
+  return null;
+}
+
+function populateParentSubSelect(selectEl, orgId, excludeSubId, presetParentSubId){
+  const options = ['<option value="">— Верхний уровень (внутри организации) —</option>']
+    .concat(Object.values(subdivisions)
+      .filter(s => s.orgId === orgId && s.id !== excludeSubId)
+      .map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`));
+  selectEl.innerHTML = options.join('');
+  selectEl.value = presetParentSubId || '';
+}
+
+function refreshAttachSelectForModal(){
+  const orgId = document.getElementById('sub-org-select').value;
+  const parentSubId = document.getElementById('sub-parent-select').value || null;
+  populateAttachSelect(document.getElementById('sub-attach-select'), orgId, null, parentSubId);
 }
 
 function openAddSubdivisionModal(opts){
@@ -1407,6 +1509,7 @@ function openAddSubdivisionModal(opts){
   document.getElementById('sub-modal-title').textContent = 'Новое подразделение';
   document.getElementById('sub-modal-save').textContent = 'Создать';
   document.getElementById('sub-org-field').style.display = '';
+  document.getElementById('sub-parent-field').style.display = '';
   document.getElementById('sub-attach-field').style.display = '';
   document.getElementById('sub-name-input').value = '';
   document.getElementById('sub-name-input').disabled = false;
@@ -1415,13 +1518,23 @@ function openAddSubdivisionModal(opts){
   populateOrgSelect(orgSelect);
   const defaultOrgId = opts.presetOrgId || Object.keys(orgs)[0];
   orgSelect.value = defaultOrgId;
-  orgSelect.disabled = false;
-  populateAttachSelect(document.getElementById('sub-attach-select'), defaultOrgId, null);
+  orgSelect.disabled = !!opts.presetParentSubId;
+
+  const parentSelect = document.getElementById('sub-parent-select');
+  populateParentSubSelect(parentSelect, defaultOrgId, null, opts.presetParentSubId || null);
+  parentSelect.disabled = !!opts.presetParentSubId;
+
+  refreshAttachSelectForModal();
 
   document.getElementById('sub-modal-overlay').classList.add('open');
 }
 document.getElementById('sub-org-select').addEventListener('change', (e) => {
-  if(subModalMode === 'create') populateAttachSelect(document.getElementById('sub-attach-select'), e.target.value, null);
+  if(subModalMode !== 'create') return;
+  populateParentSubSelect(document.getElementById('sub-parent-select'), e.target.value, null, null);
+  refreshAttachSelectForModal();
+});
+document.getElementById('sub-parent-select').addEventListener('change', () => {
+  if(subModalMode === 'create') refreshAttachSelectForModal();
 });
 
 function openRenameSubdivisionModal(subId){
@@ -1430,6 +1543,7 @@ function openRenameSubdivisionModal(subId){
   document.getElementById('sub-modal-title').textContent = 'Переименовать подразделение';
   document.getElementById('sub-modal-save').textContent = 'Сохранить';
   document.getElementById('sub-org-field').style.display = 'none';
+  document.getElementById('sub-parent-field').style.display = 'none';
   document.getElementById('sub-attach-field').style.display = 'none';
   document.getElementById('sub-name-input').value = subdivisions[subId].name || '';
   document.getElementById('sub-name-input').disabled = false;
@@ -1443,10 +1557,11 @@ function openReattachSubdivisionModal(subId){
   document.getElementById('sub-modal-title').textContent = 'На кого замыкается «' + sub.name + '»';
   document.getElementById('sub-modal-save').textContent = 'Сохранить';
   document.getElementById('sub-org-field').style.display = 'none';
+  document.getElementById('sub-parent-field').style.display = 'none';
   document.getElementById('sub-attach-field').style.display = '';
   document.getElementById('sub-name-input').value = sub.name;
   document.getElementById('sub-name-input').disabled = true;
-  populateAttachSelect(document.getElementById('sub-attach-select'), sub.orgId, sub.attachToPositionId);
+  populateAttachSelect(document.getElementById('sub-attach-select'), sub.orgId, sub.attachToPositionId, sub.parentSubId || null);
   document.getElementById('sub-modal-overlay').classList.add('open');
 }
 
@@ -1465,11 +1580,17 @@ document.getElementById('sub-modal-save').onclick = async () => {
     const name = document.getElementById('sub-name-input').value.trim();
     if(!name){ alert('Укажите название подразделения'); return; }
     const orgId = document.getElementById('sub-org-select').value;
+    const parentSubId = document.getElementById('sub-parent-select').value || null;
     const attachTo = document.getElementById('sub-attach-select').value;
     if(!orgId){ alert('Сначала создайте организацию'); return; }
-    if(!attachTo){ alert('Выберите, на кого замыкается подразделение — сначала добавьте хотя бы одну должность в организацию.'); return; }
+    if(!attachTo){
+      alert(parentSubId
+        ? 'Выберите, на кого замыкается подразделение — сначала добавьте хотя бы одну должность в родительское подразделение.'
+        : 'Выберите, на кого замыкается подразделение — сначала добавьте хотя бы одну должность в организацию.');
+      return;
+    }
     const id = uid('s');
-    const sub = {id, orgId, name, attachToPositionId: attachTo, x: null, y: null};
+    const sub = {id, orgId, name, attachToPositionId: attachTo, parentSubId, x: null, y: null};
     if(subModalWorldPoint){ sub.x = Math.round(subModalWorldPoint.x); sub.y = Math.round(subModalWorldPoint.y); }
     subdivisions[id] = sub;
   }
