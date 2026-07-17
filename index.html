@@ -116,6 +116,15 @@
     display:flex; align-items:center; justify-content:center; position:relative; z-index:2;
   }
   .org-plus-btn:hover{background:var(--ui-hover-bg);}
+  .resize-handle{
+    position:absolute; right:0; bottom:0; width:18px; height:18px;
+    cursor:nwse-resize; opacity:0; transition:opacity .15s; z-index:3;
+  }
+  .org-frame:hover .resize-handle, .sub-frame:hover .resize-handle{opacity:0.7;}
+  .resize-handle::after{
+    content:''; position:absolute; right:4px; bottom:4px; width:9px; height:9px;
+    border-right:2px solid var(--ui-text-dim); border-bottom:2px solid var(--ui-text-dim);
+  }
 
   .node-card{
     position:absolute;
@@ -393,7 +402,7 @@
   <button class="btn" id="export-btn">Экспорт</button>
   <button class="btn" id="import-btn">Импорт</button>
   <input type="file" id="import-file" accept="application/json" style="display:none">
-  <button class="btn primary" id="add-btn">+ Добавить должность</button>
+  <button class="btn primary" id="add-btn">Добавить</button>
 </div>
 
 <!-- Add organization modal -->
@@ -724,6 +733,47 @@ function subDepthOf(subId){
   }
   return depth;
 }
+// All subdivisions (any depth) that live inside a given organization -- used so dragging
+// the organization carries every subdivision box along with it.
+function collectOrgSubIds(orgId){
+  return Object.values(subdivisions).filter(s => s.orgId === orgId).map(s => s.id);
+}
+// All subdivisions nested (at any depth) inside a given subdivision -- used so dragging a
+// subdivision box carries its inner boxes along with it.
+function collectNestedSubIds(rootSubId){
+  const result = [];
+  const stack = [rootSubId];
+  let guard = 0;
+  while(stack.length && guard < 500){
+    const cur = stack.pop();
+    Object.values(subdivisions).forEach(s => {
+      if(s.parentSubId === cur){ result.push(s.id); stack.push(s.id); }
+    });
+    guard++;
+  }
+  return result;
+}
+// Nudges `rect` (mutated in place: {x,y,w,h}) away from any of `obstacles` it overlaps,
+// keeping at least `minGap` of breathing room, so dropped frames/cards never visually
+// stack on top of each other.
+function pushApart(rect, obstacles, minGap){
+  for(let iter = 0; iter < 10; iter++){
+    let adjusted = false;
+    for(const ob of obstacles){
+      const overlapX = Math.min(rect.x+rect.w+minGap, ob.x+ob.w+minGap) - Math.max(rect.x-minGap, ob.x-minGap);
+      const overlapY = Math.min(rect.y+rect.h+minGap, ob.y+ob.h+minGap) - Math.max(rect.y-minGap, ob.y-minGap);
+      if(overlapX > 0 && overlapY > 0){
+        if(overlapX < overlapY){
+          rect.x += (rect.x + rect.w/2 < ob.x + ob.w/2) ? -overlapX : overlapX;
+        } else {
+          rect.y += (rect.y + rect.h/2 < ob.y + ob.h/2) ? -overlapY : overlapY;
+        }
+        adjusted = true;
+      }
+    }
+    if(!adjusted) break;
+  }
+}
 function isAncestorOrg(ancestorId, orgId){
   let cur = orgs[orgId];
   let guard = 0;
@@ -880,7 +930,9 @@ function computeLayout(){
     });
 
     const depth = subDepthOf(sub.id);
-    const frame = {x: minX, y: minY, w: maxX - minX, h: maxY - minY, name: sub.name, headerH: subHeader.height, depth};
+    const w = Math.max(maxX - minX, sub.manualW || 0);
+    const h = Math.max(maxY - minY, sub.manualH || 0);
+    const frame = {x: minX, y: minY, w, h, name: sub.name, headerH: subHeader.height, depth};
     subFrames[sub.id] = frame;
     return frame;
   }
@@ -925,8 +977,25 @@ function computeLayout(){
 
     // 3) The organization's own frame must fully contain its position tree AND every one of
     // its subdivision boxes (wherever they currently sit), so nothing appears to escape it.
-    orgFrames[orgId] = {x: minX, y: minY, w: maxX - minX, h: maxY - minY, name: org.name, headerH: orgHeader.height};
-    nextAutoX = Math.max(nextAutoX, maxX + ORG_GAP);
+    const orgW = Math.max(maxX - minX, org.manualW || 0);
+    const orgH = Math.max(maxY - minY, org.manualH || 0);
+    orgFrames[orgId] = {x: minX, y: minY, w: orgW, h: orgH, name: org.name, headerH: orgHeader.height};
+    nextAutoX = Math.max(nextAutoX, minX + orgW + ORG_GAP);
+  });
+
+  // 4) A person can freely drag any position card off its computed slot. Apply that override
+  // last (so sibling spacing above was computed from the normal slot), then grow whichever
+  // frame owns the card so it never appears to poke outside its border.
+  Object.values(nodes).forEach(n => {
+    if(n.manualX === undefined || n.manualX === null || !layoutPos[n.id]) return;
+    layoutPos[n.id] = {x: n.manualX, y: n.manualY, depth: layoutPos[n.id].depth};
+    const subId = subdivisionOf(n.id);
+    const frame = (subId && subFrames[subId]) ? subFrames[subId] : orgFrames[n.orgId];
+    if(!frame) return;
+    const neededRight = n.manualX + CARD_W + ORG_PAD;
+    const neededBottom = n.manualY + CARD_H + ORG_PAD;
+    if(neededRight > frame.x + frame.w) frame.w = neededRight - frame.x;
+    if(neededBottom > frame.y + frame.h) frame.h = neededBottom - frame.y;
   });
 }
 
@@ -951,7 +1020,8 @@ function render(){
       <div class="org-frame-header" style="height:${f.headerH}px;">
         <span class="org-frame-name">${escapeHtml(f.name)}</span>
         <button class="org-plus-btn" data-org-id="${orgId}" title="Действия организации">+</button>
-      </div>`;
+      </div>
+      <div class="resize-handle" data-kind="org" data-id="${orgId}" title="Изменить размер"></div>`;
     const header = frame.querySelector('.org-frame-header');
 
     frame.querySelector('.org-plus-btn').addEventListener('click', (e) => {
@@ -959,16 +1029,33 @@ function render(){
       showCtxMenu(e.clientX, e.clientY, buildOrgPlusMenuHtml(orgId));
     });
 
-    // Drag the whole organization frame by its header
+    frame.querySelector('.resize-handle').addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
+      resizeDragState = {
+        kind: 'org', id: orgId,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startW: f.w, startH: f.h,
+        moved: false
+      };
+    });
+
+    // Drag the whole organization frame by its header -- carries every subdivision inside
+    // it along for the ride.
     header.addEventListener('click', (e) => e.stopPropagation());
     header.addEventListener('pointerdown', (e) => {
       if(e.target.closest('.org-plus-btn')) return;
       e.stopPropagation();
       header.setPointerCapture(e.pointerId);
+      const carriedSubs = collectOrgSubIds(orgId).map(sid => ({
+        id: sid, startX: subdivisions[sid].x, startY: subdivisions[sid].y
+      }));
       orgDragState = {
         orgId,
         startClientX: e.clientX, startClientY: e.clientY,
         startOrgX: orgs[orgId].x, startOrgY: orgs[orgId].y,
+        carriedSubs,
         moved: false
       };
     });
@@ -1018,7 +1105,8 @@ function render(){
       <div class="sub-frame-header" style="height:${f.headerH}px; border-bottom-color:${color};">
         <span class="sub-frame-name">${escapeHtml(f.name)}</span>
         <button class="sub-plus-btn" data-sub-id="${subId}" title="Действия подразделения">+</button>
-      </div>`;
+      </div>
+      <div class="resize-handle" data-kind="sub" data-id="${subId}" title="Изменить размер"></div>`;
     const header = frame.querySelector('.sub-frame-header');
 
     frame.querySelector('.sub-plus-btn').addEventListener('click', (e) => {
@@ -1026,15 +1114,31 @@ function render(){
       showCtxMenu(e.clientX, e.clientY, buildSubPlusMenuHtml(subId));
     });
 
+    frame.querySelector('.resize-handle').addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
+      resizeDragState = {
+        kind: 'sub', id: subId,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startW: f.w, startH: f.h,
+        moved: false
+      };
+    });
+
     header.addEventListener('click', (e) => e.stopPropagation());
     header.addEventListener('pointerdown', (e) => {
       if(e.target.closest('.sub-plus-btn')) return;
       e.stopPropagation();
       header.setPointerCapture(e.pointerId);
+      const carriedSubs = collectNestedSubIds(subId).map(sid => ({
+        id: sid, startX: subdivisions[sid].x, startY: subdivisions[sid].y
+      }));
       subDragState = {
         subId,
         startClientX: e.clientX, startClientY: e.clientY,
         startSubX: subdivisions[subId].x, startSubY: subdivisions[subId].y,
+        carriedSubs,
         moved: false
       };
     });
@@ -1065,8 +1169,9 @@ function render(){
     if(!f || !anchorPos) return;
     const x1 = f.x + f.w/2, y1 = f.y;
     const x2 = anchorPos.x + 98, y2 = anchorPos.y + 39;
+    const midY = (y1 + y2) / 2;
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+    path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`);
     path.setAttribute('class','sub-attach-connector-path');
     path.setAttribute('style', `stroke:${SUB_DEPTH_COLORS[f.depth % SUB_DEPTH_COLORS.length]}`);
     svg.appendChild(path);
@@ -1103,7 +1208,32 @@ function render(){
         <div class="name">${escapeHtml(n.name || '—')}</div>
         <div class="footer"><span>${positionDeptLabel(n) ? escapeHtml(positionDeptLabel(n)) : '—'}</span><span>${n.id.slice(2,7).toUpperCase()}</span></div>
       </div>`;
-    card.addEventListener('click', (e) => { e.stopPropagation(); openDossier(n.id); });
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasJustDragged = (cardJustDraggedId === n.id);
+      cardJustDraggedId = null;
+      if(wasJustDragged) return;
+      openDossier(n.id);
+    });
+    card.addEventListener('pointerdown', (e) => {
+      if(e.target.closest('.card-plus')) return;
+      e.stopPropagation();
+      card.setPointerCapture(e.pointerId);
+      const curPos = layoutPos[n.id];
+      cardDragState = {
+        id: n.id,
+        startClientX: e.clientX, startClientY: e.clientY,
+        startX: n.manualX !== undefined && n.manualX !== null ? n.manualX : curPos.x,
+        startY: n.manualY !== undefined && n.manualY !== null ? n.manualY : curPos.y,
+        moved: false
+      };
+    });
+    card.addEventListener('pointercancel', async () => {
+      if(cardDragState){
+        if(cardDragState.moved) await saveData();
+        cardDragState = null;
+      }
+    });
     card.querySelector('.card-plus').addEventListener('click', (e) => {
       e.stopPropagation();
       showCtxMenu(e.clientX, e.clientY, buildCardPlusMenuHtml(n.id));
@@ -1133,8 +1263,12 @@ function screenToWorld(clientX, clientY){
 
 // ---- Pan & zoom ----
 let dragging = false, dragMoved = false, dragStartX=0, dragStartY=0, panStartX=0, panStartY=0;
-let orgDragState = null; // {orgId, startClientX, startClientY, startOrgX, startOrgY, moved}
-let subDragState = null; // {subId, startClientX, startClientY, startSubX, startSubY, moved}
+let orgDragState = null; // {orgId, startClientX, startClientY, startOrgX, startOrgY, carriedSubs, moved}
+let subDragState = null; // {subId, startClientX, startClientY, startSubX, startSubY, carriedSubs, moved}
+let cardDragState = null; // {id, startClientX, startClientY, startX, startY, moved}
+let cardJustDraggedId = null; // suppresses the click-to-open-dossier for the specific card just dragged
+let resizeDragState = null; // {kind:'org'|'sub', id, startClientX, startClientY, startW, startH, moved}
+const MIN_FRAME_W = 220, MIN_FRAME_H = 140;
 
 worldWrapper.addEventListener('pointerdown', (e) => {
   dragging = true; dragMoved = false;
@@ -1149,6 +1283,10 @@ window.addEventListener('pointermove', (e) => {
     if(Math.abs(dx) > 2 || Math.abs(dy) > 2) orgDragState.moved = true;
     orgs[orgDragState.orgId].x = orgDragState.startOrgX + dx;
     orgs[orgDragState.orgId].y = orgDragState.startOrgY + dy;
+    orgDragState.carriedSubs.forEach(c => {
+      subdivisions[c.id].x = c.startX + dx;
+      subdivisions[c.id].y = c.startY + dy;
+    });
     render();
     applyTransform();
     return;
@@ -1159,6 +1297,35 @@ window.addEventListener('pointermove', (e) => {
     if(Math.abs(dx) > 2 || Math.abs(dy) > 2) subDragState.moved = true;
     subdivisions[subDragState.subId].x = subDragState.startSubX + dx;
     subdivisions[subDragState.subId].y = subDragState.startSubY + dy;
+    subDragState.carriedSubs.forEach(c => {
+      subdivisions[c.id].x = c.startX + dx;
+      subdivisions[c.id].y = c.startY + dy;
+    });
+    render();
+    applyTransform();
+    return;
+  }
+  if(cardDragState){
+    const dx = (e.clientX - cardDragState.startClientX) / scale;
+    const dy = (e.clientY - cardDragState.startClientY) / scale;
+    if(Math.abs(dx) > 2 || Math.abs(dy) > 2) cardDragState.moved = true;
+    const n = nodes[cardDragState.id];
+    if(n){
+      n.manualX = cardDragState.startX + dx;
+      n.manualY = cardDragState.startY + dy;
+    }
+    render();
+    applyTransform();
+    return;
+  }
+  if(resizeDragState){
+    const dx = (e.clientX - resizeDragState.startClientX) / scale;
+    const dy = (e.clientY - resizeDragState.startClientY) / scale;
+    if(Math.abs(dx) > 2 || Math.abs(dy) > 2) resizeDragState.moved = true;
+    const w = Math.max(MIN_FRAME_W, resizeDragState.startW + dx);
+    const h = Math.max(MIN_FRAME_H, resizeDragState.startH + dy);
+    const target = resizeDragState.kind === 'org' ? orgs[resizeDragState.id] : subdivisions[resizeDragState.id];
+    if(target){ target.manualW = w; target.manualH = h; }
     render();
     applyTransform();
     return;
@@ -1172,12 +1339,108 @@ window.addEventListener('pointermove', (e) => {
 window.addEventListener('pointerup', async () => {
   dragging = false; worldWrapper.classList.remove('grabbing');
   if(orgDragState){
-    if(orgDragState.moved) await saveData();
+    if(orgDragState.moved){
+      computeLayout();
+      const myFrame = orgFrames[orgDragState.orgId];
+      if(myFrame){
+        const obstacles = Object.keys(orgFrames).filter(id => id !== orgDragState.orgId).map(id => orgFrames[id]);
+        const rect = {x: myFrame.x, y: myFrame.y, w: myFrame.w, h: myFrame.h};
+        pushApart(rect, obstacles, 50);
+        const adjDx = rect.x - myFrame.x, adjDy = rect.y - myFrame.y;
+        if(adjDx || adjDy){
+          orgs[orgDragState.orgId].x += adjDx;
+          orgs[orgDragState.orgId].y += adjDy;
+          orgDragState.carriedSubs.forEach(c => {
+            subdivisions[c.id].x += adjDx;
+            subdivisions[c.id].y += adjDy;
+          });
+        }
+      }
+      await saveData();
+      render();
+      applyTransform();
+    }
     orgDragState = null;
   }
   if(subDragState){
-    if(subDragState.moved) await saveData();
+    if(subDragState.moved){
+      computeLayout();
+      const myFrame = subFrames[subDragState.subId];
+      const mySub = subdivisions[subDragState.subId];
+      if(myFrame){
+        const obstacles = Object.values(subdivisions)
+          .filter(s => s.id !== subDragState.subId && s.orgId === mySub.orgId && s.parentSubId === mySub.parentSubId)
+          .map(s => subFrames[s.id]).filter(Boolean);
+        const rect = {x: myFrame.x, y: myFrame.y, w: myFrame.w, h: myFrame.h};
+        pushApart(rect, obstacles, 40);
+        const adjDx = rect.x - myFrame.x, adjDy = rect.y - myFrame.y;
+        if(adjDx || adjDy){
+          mySub.x += adjDx;
+          mySub.y += adjDy;
+          subDragState.carriedSubs.forEach(c => {
+            subdivisions[c.id].x += adjDx;
+            subdivisions[c.id].y += adjDy;
+          });
+        }
+      }
+      await saveData();
+      render();
+      applyTransform();
+    }
     subDragState = null;
+  }
+  if(cardDragState){
+    if(cardDragState.moved){
+      computeLayout();
+      const myPos = layoutPos[cardDragState.id];
+      if(myPos){
+        const obstacles = Object.keys(layoutPos)
+          .filter(id => id !== cardDragState.id)
+          .map(id => ({x: layoutPos[id].x, y: layoutPos[id].y, w: CARD_W, h: CARD_H}));
+        const rect = {x: myPos.x, y: myPos.y, w: CARD_W, h: CARD_H};
+        pushApart(rect, obstacles, 20);
+        const n = nodes[cardDragState.id];
+        n.manualX = rect.x;
+        n.manualY = rect.y;
+      }
+      cardJustDraggedId = cardDragState.id;
+      await saveData();
+      render();
+      applyTransform();
+    }
+    cardDragState = null;
+  }
+  if(resizeDragState){
+    if(resizeDragState.moved){
+      // If the new size now overlaps a sibling, shrink back a little at a time until clear.
+      const isOrg = resizeDragState.kind === 'org';
+      const target = isOrg ? orgs[resizeDragState.id] : subdivisions[resizeDragState.id];
+      for(let i = 0; i < 20; i++){
+        computeLayout();
+        const myFrame = isOrg ? orgFrames[resizeDragState.id] : subFrames[resizeDragState.id];
+        if(!myFrame) break;
+        let obstacles;
+        if(isOrg){
+          obstacles = Object.keys(orgFrames).filter(id => id !== resizeDragState.id).map(id => orgFrames[id]);
+        } else {
+          const mySub = subdivisions[resizeDragState.id];
+          obstacles = Object.values(subdivisions)
+            .filter(s => s.id !== resizeDragState.id && s.orgId === mySub.orgId && s.parentSubId === mySub.parentSubId)
+            .map(s => subFrames[s.id]).filter(Boolean);
+        }
+        const overlapping = obstacles.some(ob =>
+          myFrame.x < ob.x + ob.w && myFrame.x + myFrame.w > ob.x &&
+          myFrame.y < ob.y + ob.h && myFrame.y + myFrame.h > ob.y
+        );
+        if(!overlapping) break;
+        target.manualW = Math.max(MIN_FRAME_W, (target.manualW || myFrame.w) - 15);
+        target.manualH = Math.max(MIN_FRAME_H, (target.manualH || myFrame.h) - 15);
+      }
+      await saveData();
+      render();
+      applyTransform();
+    }
+    resizeDragState = null;
   }
 });
 
@@ -1207,6 +1470,7 @@ document.getElementById('reset-view').onclick = () => { scale = 1; panX = 60; pa
 // Left-click on empty canvas space -> quick-add menu (organization / position)
 worldWrapper.addEventListener('click', (e) => {
   if(dragMoved) return;
+  cardJustDraggedId = null;
   e.stopPropagation();
   pendingCtxWorldPoint = screenToWorld(e.clientX, e.clientY);
   showCtxMenu(e.clientX, e.clientY, buildEmptySpaceMenuHtml());
@@ -1238,6 +1502,14 @@ function buildEmptySpaceMenuHtml(){
     <div class="ctx-item" data-action="add-org">+ Добавить организацию</div>
     <div class="ctx-item" data-action="add-subdivision">+ Добавить подразделение</div>
     <div class="ctx-item" data-action="add-position">+ Добавить должность</div>
+  `;
+}
+function buildToolbarAddMenuHtml(){
+  return `
+    <div class="ctx-item" data-action="add-org">Организацию</div>
+    <div class="ctx-item" data-action="add-subdivision">Подразделение</div>
+    <div class="ctx-item" data-action="add-subdivision-nested">Внутреннее подразделение</div>
+    <div class="ctx-item" data-action="add-position">Должность</div>
   `;
 }
 function buildCardPlusMenuHtml(nodeId){
@@ -1319,6 +1591,8 @@ ctxMenu.addEventListener('click', async (e) => {
       presetParentSubId: item.dataset.presetParentSubId || null,
       worldPoint: pendingCtxWorldPoint
     });
+  } else if(action === 'add-subdivision-nested'){
+    openAddSubdivisionModal({ worldPoint: pendingCtxWorldPoint });
   } else if(action === 'rename-subdivision'){
     openRenameSubdivisionModal(item.dataset.subId);
   } else if(action === 'reattach-subdivision'){
@@ -1650,7 +1924,12 @@ document.getElementById('f-org').addEventListener('change', (e) => {
   populateSubdivisionSelectFor(document.getElementById('f-sub'), e.target.value, null);
 });
 
-document.getElementById('add-btn').onclick = () => openAddPositionModal({});
+document.getElementById('add-btn').onclick = (e) => {
+  e.stopPropagation();
+  const rect = worldWrapper.getBoundingClientRect();
+  pendingCtxWorldPoint = screenToWorld(rect.left + rect.width/2, rect.top + rect.height/2);
+  showCtxMenu(e.clientX, e.clientY, buildToolbarAddMenuHtml());
+};
 document.getElementById('modal-cancel').onclick = () => overlay.classList.remove('open');
 overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.classList.remove('open'); });
 
